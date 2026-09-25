@@ -1,0 +1,232 @@
+{
+  "id": "momRouting000001",
+  "name": "MoM routing & delivery",
+  "active": false,
+  "nodes": [
+    {
+      "id": "b1f0c1d2-0000-4000-8000-000000000001",
+      "name": "MoM received",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        200
+      ],
+      "webhookId": "7d3c9a52-1e8b-4f6a-9b1e-6f0a3c2d9e11",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "mom",
+        "responseMode": "onReceived",
+        "options": {}
+      }
+    },
+    {
+      "id": "b1f0c1d2-0000-4000-8000-000000000002",
+      "name": "Route by meeting type",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        260,
+        200
+      ],
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                },
+                "conditions": [
+                  {
+                    "id": "c0000000-0000-4000-8000-000000000000",
+                    "leftValue": "={{ $json.body.meeting_type }}",
+                    "rightValue": "medical",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Medical"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                },
+                "conditions": [
+                  {
+                    "id": "c0000000-0000-4000-8000-000000000001",
+                    "leftValue": "={{ $json.body.meeting_type }}",
+                    "rightValue": "executive",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Executive"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false,
+                  "leftValue": "",
+                  "typeValidation": "loose"
+                },
+                "conditions": [
+                  {
+                    "id": "c0000000-0000-4000-8000-000000000002",
+                    "leftValue": "={{ $json.body.meeting_type }}",
+                    "rightValue": "administrative",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Administrative"
+            }
+          ]
+        },
+        "options": {
+          "ignoreCase": true
+        }
+      }
+    },
+    {
+      "id": "b1f0c1d2-0000-4000-8000-000000000010",
+      "name": "Email Medical list",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        540,
+        60
+      ],
+      "parameters": {
+        "fromEmail": "minute-sedinte@medpark.local",
+        "toEmail": "consiliul-medical@medpark.local, director.medical@medpark.local, sef.sectie@medpark.local",
+        "subject": "={{ $json.body.subject }}",
+        "emailFormat": "html",
+        "html": "={{ $json.body.html }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "credentials": {
+        "smtp": {
+          "id": "mailpitSmtp00001",
+          "name": "Hospital SMTP (Mailpit)"
+        }
+      }
+    },
+    {
+      "id": "b1f0c1d2-0000-4000-8000-000000000011",
+      "name": "Email Executive list",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        540,
+        210
+      ],
+      "parameters": {
+        "fromEmail": "minute-sedinte@medpark.local",
+        "toEmail": "board@medpark.local, ceo@medpark.local, cfo@medpark.local",
+        "subject": "={{ $json.body.subject }}",
+        "emailFormat": "html",
+        "html": "={{ $json.body.html }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "credentials": {
+        "smtp": {
+          "id": "mailpitSmtp00001",
+          "name": "Hospital SMTP (Mailpit)"
+        }
+      }
+    },
+    {
+      "id": "b1f0c1d2-0000-4000-8000-000000000012",
+      "name": "Email Administrative list",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        540,
+        360
+      ],
+      "parameters": {
+        "fromEmail": "minute-sedinte@medpark.local",
+        "toEmail": "administratie@medpark.local, hr@medpark.local, achizitii@medpark.local",
+        "subject": "={{ $json.body.subject }}",
+        "emailFormat": "html",
+        "html": "={{ $json.body.html }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "credentials": {
+        "smtp": {
+          "id": "mailpitSmtp00001",
+          "name": "Hospital SMTP (Mailpit)"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "MoM received": {
+      "main": [
+        [
+          {
+            "node": "Route by meeting type",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by meeting type": {
+      "main": [
+        [
+          {
+            "node": "Email Medical list",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Email Executive list",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Email Administrative list",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

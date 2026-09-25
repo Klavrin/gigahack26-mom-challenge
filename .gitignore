@@ -1,0 +1,17 @@
+# Patient/meeting audio and outputs never go to git.
+data/*
+!data/refs/
+data/refs/*
+!data/refs/README.md
+models/
+*.wav
+*.mp3
+*.m4a
+*.ogg
+*.webm
+*.flac
+*.mp4
+.env
+__pycache__/
+*.pyc
+.venv/

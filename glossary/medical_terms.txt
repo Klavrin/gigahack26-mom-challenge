@@ -1,0 +1,45 @@
+# One term per line. Used by the LLM correction pass and for your own review.
+# Add terms from GENERAL sources (drug registers, textbooks, department lists),
+# never copied from the held-out test recording.
+tomografie computerizată
+rezonanță magnetică (RMN)
+electrocardiogramă (ECG)
+ecocardiografie
+hemoleucogramă
+angiografie coronariană
+stent
+by-pass aorto-coronarian
+insuficiență cardiacă
+infarct miocardic acut
+accident vascular cerebral (AVC)
+hipertensiune arterială
+diabet zaharat
+pneumonie
+sepsis
+anestezie și terapie intensivă (ATI)
+unitate de primiri urgențe (UPU)
+ceftriaxonă
+amoxicilină
+heparină
+enoxaparină
+insulină
+metformină
+paracetamol
+omeprazol
+consimțământ informat
+protocol clinic național
+foaie de observație
+externare
+КТ (компьютерная томография)
+МРТ
+ЭКГ
+общий анализ крови
+реанимация
+отделение кардиологии
+цефтриаксон
+гепарин
+инсулин
+KPI
+deadline
+follow-up
+budget
