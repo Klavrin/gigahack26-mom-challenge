@@ -1,0 +1,14 @@
+{
+  "topics": [],
+  "decisions": [],
+  "action_items": [
+    {
+      "description": "Contact the supplier",
+      "owner": "Natalia Rusu",
+      "deadline": "Thursday",
+      "status": "open"
+    }
+  ],
+  "open_questions": [],
+  "important_notes": []
+}
