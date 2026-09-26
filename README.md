@@ -134,6 +134,25 @@ resolved date). Nothing is emailed until someone clicks *Aprobați și trimiteț
 
 ## Evaluation
 
+### ASR mode (4-min Moldovan biology lecture, exact hand transcript `data/refs/output.txt`)
+
+| ASR mode | WER | CER |
+|---|---|---|
+| `segment`: short VAD chunks, no context (old default) | 83.6% | 67.1% |
+| `plain`: stock Whisper, auto language | 63.4% | 37.8% |
+| **`longform`**: language runs, 30 s windows + context (default) | **53–57%** | **~29%** |
+| fixed 5 s / 10 s / 20 s chunks, no context | 85.2% / 82.0% / 77.7% | |
+
+Longer context wins: Whisper is trained on 30 s windows. The language is chosen per
+speech region *before* decoding (Russian only at >= 95% detection confidence). Forced
+Romanian on a Russian speech makes Whisper write "Să vă mulțumim pentru vizionare"
+instead, so choosing the language first recovers whole Russian speeches in the
+Parliament session. An 80% threshold let noisy Romanian through as Russian (66.5% WER).
+Re-decoding low-confidence segments in other languages (`LONGFORM_RESCUE=1`) cost +10 WER
+on the lecture, so it is off by default. Runs vary by a few points (Whisper's
+temperature fallback). Note: the lecture is also fine-tuning training data.
+
+
 ```bash
 # on the GPU node
 docker compose -f docker-compose.gpu.yml exec asr python -m app.cli transcribe /data/dev.wav --mode plain   --out /data/out/plain.txt

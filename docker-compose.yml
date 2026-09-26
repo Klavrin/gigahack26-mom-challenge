@@ -17,7 +17,7 @@ services:
     environment:
       MOCK_MODELS: ${MOCK_MODELS:-1}
       ASR_URL: ${ASR_URL:-}
-      ASR_MODE: ${ASR_MODE:-segment}
+      ASR_MODE: ${ASR_MODE:-longform}
       ASR_BACKEND: ${ASR_BACKEND:-whisper}
       NEMOTRON_URL: ${NEMOTRON_URL:-http://nemo:8001}
       DIARIZATION_URL: ${DIARIZATION_URL:-}

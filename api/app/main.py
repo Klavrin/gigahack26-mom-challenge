@@ -108,8 +108,8 @@ def job_transcript(job_id: str):
 @app.post("/api/asr")
 def asr_worker(file: UploadFile = File(...), mode: str = Form("")):
     """ASR worker: the GPU node serves this, laptops reach it through ASR_URL."""
-    if mode and mode not in ("segment", "plain"):
-        raise HTTPException(400, "mode must be segment or plain")
+    if mode and mode not in config.ASR_MODES:
+        raise HTTPException(400, f"mode must be one of {config.ASR_MODES}")
     if config.MOCK_MODELS:
         return mock.transcribe(lambda f: None)
     with tempfile.TemporaryDirectory(dir=config.DATA_DIR) as tmp:

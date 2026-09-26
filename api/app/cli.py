@@ -22,7 +22,7 @@ def main() -> None:
 
     t = sub.add_parser("transcribe")
     t.add_argument("audio")
-    t.add_argument("--mode", choices=["segment", "plain"], default=config.ASR_MODE)
+    t.add_argument("--mode", choices=list(config.ASR_MODES), default=config.ASR_MODE)
     t.add_argument("--backend", choices=["whisper", "nemotron"], default=config.ASR_BACKEND)
     t.add_argument("--out", help="write transcript here (default: stdout)")
     t.add_argument("--correct", action="store_true", help="run the LLM glossary correction")
