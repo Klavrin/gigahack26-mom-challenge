@@ -10,7 +10,9 @@ def _flag(name: str, default: str = "0") -> bool:
     return _env(name, default).lower() in ("1", "true", "yes")
 
 
-WHISPER_MODEL = _env("WHISPER_MODEL", "large-v3-turbo")
+# large-v3 over large-v3-turbo: 53% vs 57-71% WER on the Moldovan lecture (turbo is unstable on
+# noisy audio), same Russian coverage in Parliament; ~7.8 min ASR per 60 min on an 8 GB laptop GPU.
+WHISPER_MODEL = _env("WHISPER_MODEL", "large-v3")
 WHISPER_DEVICE = _env("WHISPER_DEVICE", "cuda")
 WHISPER_COMPUTE_TYPE = _env("WHISPER_COMPUTE_TYPE", "int8_float16")
 WHISPER_DIR = Path(_env("WHISPER_DIR", "/models/whisper"))

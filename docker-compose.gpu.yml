@@ -22,7 +22,7 @@ services:
       - "${ASR_PORT:-8000}:8000" # LAN: ASR worker for the laptop (8001 when on the same machine)
     environment:
       MOCK_MODELS: "0"
-      WHISPER_MODEL: ${WHISPER_MODEL:-large-v3-turbo}
+      WHISPER_MODEL: ${WHISPER_MODEL:-large-v3}
       WHISPER_DEVICE: cuda
       WHISPER_COMPUTE_TYPE: ${WHISPER_COMPUTE_TYPE:-int8_float16}
       ASR_MODE: ${ASR_MODE:-longform}
