@@ -12,7 +12,7 @@ from pathlib import Path
 
 import httpx
 
-from . import asr, config, llm, merge, mock, nemo_client, render
+from . import asr, config, delivery, llm, merge, mock, nemo_client, render
 
 STAGES = ["queued", "transcribing", "correcting", "extracting", "review", "sending", "done"]
 
@@ -100,7 +100,8 @@ def recent(limit: int = 10) -> list[dict]:
     return [{k: j.get(k) for k in keys} for j in jobs]
 
 
-def send(job: dict, action_items: list[dict], meeting_type: str | None = None) -> dict:
+def send(job: dict, action_items: list[dict], meeting_type: str | None = None,
+         approved_by: str = "") -> dict:
     """Apply the reviewer's edits (owners, deadlines, distribution list), re-render,
     deliver through n8n."""
     jid = job["id"]
@@ -128,14 +129,9 @@ def send(job: dict, action_items: list[dict], meeting_type: str | None = None) -
     _write(jid, "mom.html", html)
     t = time.time()
     try:
-        httpx.post(config.N8N_WEBHOOK_URL, json={
-            "job_id": jid,
-            "meeting_type": job["meeting_type"],
-            "meeting_date": job["meeting_date"],
-            "subject": render.subject(mom, job["meeting_type"], date),
-            "html": html,
-            "mom": mom,
-        }, timeout=60).raise_for_status()
+        job["attempts"] = job.get("attempts", 0) + 1
+        body = delivery.payload(job, mom, approved_by, job["attempts"])   # n8n contract v2
+        httpx.post(config.N8N_WEBHOOK_URL, json=body, timeout=60).raise_for_status()
     except httpx.HTTPError as e:
         job["stage"], job["error"] = "review", f"Sending failed: {e}"   # let the user retry
         raise
