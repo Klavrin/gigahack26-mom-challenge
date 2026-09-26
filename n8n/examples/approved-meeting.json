@@ -1,0 +1,60 @@
+{
+  "schema_version": "2",
+  "delivery_id": "demo-medical-001",
+  "state": {
+    "meeting": {
+      "id": "meeting-001",
+      "title": "Synthetic hospital meeting",
+      "type": "medical",
+      "started_at": "2026-09-26T10:00:00+03:00",
+      "ended_at": "2026-09-26T10:30:00+03:00"
+    },
+    "participants": [
+      "Dr. Ana",
+      "Natalia Rusu"
+    ],
+    "topics": [
+      "Supplier follow-up"
+    ],
+    "decisions": [
+      "Request a supplier update"
+    ],
+    "action_items": [
+      {
+        "description": "Contact the supplier",
+        "owner": "Natalia Rusu",
+        "deadline": "Friday",
+        "status": "open"
+      },
+      {
+        "description": "Review the response",
+        "owner": null,
+        "deadline": null,
+        "status": "open"
+      }
+    ],
+    "open_questions": [
+      "Who will review the response?"
+    ],
+    "important_notes": [
+      "Synthetic test; no patient information."
+    ]
+  },
+  "approval": {
+    "status": "approved",
+    "approved_by": "Demo reviewer",
+    "approved_at": "2026-09-26T10:35:00+03:00"
+  },
+  "documents": [
+    {
+      "filename": "meeting-001-minutes.pdf",
+      "mime_type": "application/pdf",
+      "data_base64": "JVBERi0xLjQKMSAwIG9iago8PCAvVHlwZSAvQ2F0YWxvZyAvUGFnZXMgMiAwIFIgPj4KZW5kb2JqCjIgMCBvYmoKPDwgL1R5cGUgL1BhZ2VzIC9LaWRzIFszIDAgUl0gL0NvdW50IDEgPj4KZW5kb2JqCjMgMCBvYmoKPDwgL1R5cGUgL1BhZ2UgL1BhcmVudCAyIDAgUiAvTWVkaWFCb3ggWzAgMCAzMDAgMTAwXSAvQ29udGVudHMgNCAwIFIgL1Jlc291cmNlcyA8PCAvRm9udCA8PCAvRjEgNSAwIFIgPj4gPj4gPj4KZW5kb2JqCjQgMCBvYmoKPDwgL0xlbmd0aCA1MiA+PgpzdHJlYW0KQlQgL0YxIDEyIFRmIDIwIDUwIFRkIChTeW50aGV0aWMgTW9NIGZpeHR1cmUpIFRqIEVUCmVuZHN0cmVhbQplbmRvYmoKNSAwIG9iago8PCAvVHlwZSAvRm9udCAvU3VidHlwZSAvVHlwZTEgL0Jhc2VGb250IC9IZWx2ZXRpY2EgPj4KZW5kb2JqCnhyZWYKMCA2CjAwMDAwMDAwMDAgNjU1MzUgZiAKMDAwMDAwMDAwOSAwMDAwMCBuIAowMDAwMDAwMDU4IDAwMDAwIG4gCjAwMDAwMDAxMTUgMDAwMDAgbiAKMDAwMDAwMDI0MSAwMDAwMCBuIAowMDAwMDAwMzQyIDAwMDAwIG4gCnRyYWlsZXIKPDwgL1NpemUgNiAvUm9vdCAxIDAgUiA+PgpzdGFydHhyZWYKNDEyCiUlRU9GCg=="
+    },
+    {
+      "filename": "meeting-001-minutes.docx",
+      "mime_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "data_base64": "UEsDBBQAAAAIANqgOl3mdcR+1AAAAIsBAAATAAAAW0NvbnRlbnRfVHlwZXNdLnhtbH2QPU7EMBCFrxK5RWsHCgqUZAugBQouYDmTxMIztmZmg7k9yu6yBVqo38/39Lp9xdSswBIz9ebWtmY/dO9fBaSpmEh6s6iWB+ckLIBebC5AFdOUGb2KzTy74sOHn8Hdte29C5kUSHe6dZihe4LJH5I2z1WBThSGJKZ5PBk3Vm98KSkGrzGTW2n8RdmdCZYhHT2yxCI3FZNxVwmb8jfgnHtdgTmO0Lx51heP0Bv3mXl0Yw4HBFL7f82VnXmaYoBLfmsrnAOIRJox2YuCPtLPfne8e/gGUEsDBBQAAAAIANqgOl1fM5VSlwAAAAcBAAALAAAAX3JlbHMvLnJlbHONz7EOwiAUBdBfIe8D+loHB1PaxaWr6Q8QeG2JwCOAin/v4mCNg+vNzbm5/Vi9E3dK2XKQ0DUtjEN/IaeK5ZA3G7Oo3oUsYSslnhCz3sir3HCkUL1bOHlVcsNpxaj0Va2Eh7Y9Yvo0YG+KyUhIk+lAzM9I/9i8LFbTmfXNUyg/Jr4aIGaVVioSHpwMmnfcVO8Ahx53F4cXUEsDBBQAAAAIANqgOl3OjITvjgAAALwAAAARAAAAd29yZC9kb2N1bWVudC54bWxFzj0OgzAMBeCrRDkAoR06IH5OwNQT0BAgUmxHjoFw+yp06PK9wXpPbocMQR2Okyfs9KOq9dC3ZzOT3cGhqAwBU3N2ehOJjTHJbg6mVFF0mCEsxDBJqohXcxLPkcm6lDyuEMyzrl8GJo+6TH5ovkrGAhekf18omxNv1UijWnyWnV1ryqnIt/H2Vzf/1/ovUEsBAhQDFAAAAAgA2qA6XeZ1xH7UAAAAiwEAABMAAAAAAAAAAAAAAIABAAAAAFtDb250ZW50X1R5cGVzXS54bWxQSwECFAMUAAAACADaoDpdXzOVUpcAAAAHAQAACwAAAAAAAAAAAAAAgAEFAQAAX3JlbHMvLnJlbHNQSwECFAMUAAAACADaoDpdzoyE744AAAC8AAAAEQAAAAAAAAAAAAAAgAHFAQAAd29yZC9kb2N1bWVudC54bWxQSwUGAAAAAAMAAwC5AAAAggIAAAAA"
+    }
+  ]
+}
