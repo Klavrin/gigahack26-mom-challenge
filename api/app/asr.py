@@ -10,13 +10,16 @@ garbled. "segment" mode instead:
 import gc
 import json
 import threading
-from typing import Callable, Optional
+from typing import TYPE_CHECKING, Callable, Optional
 
 import numpy as np
-from faster_whisper import WhisperModel, decode_audio
-from faster_whisper.vad import VadOptions, get_speech_timestamps
 
 from . import config
+
+# faster_whisper is imported lazily: a laptop that sends audio to a remote ASR
+# worker (ASR_URL) or runs MOCK_MODELS=1 never loads it.
+if TYPE_CHECKING:
+    from faster_whisper import WhisperModel
 
 SR = 16000
 MIN_DETECT_S = 1.2     # shorter chunks inherit the previous language
@@ -30,13 +33,14 @@ HALLUCINATIONS = (
     "thanks for watching", "thank you for watching", "subscribe",
 )
 
-_model: Optional[WhisperModel] = None
+_model: Optional["WhisperModel"] = None
 _lock = threading.Lock()
 
 
-def _load() -> WhisperModel:
+def _load() -> "WhisperModel":
     global _model
     if _model is None:
+        from faster_whisper import WhisperModel
         _model = WhisperModel(
             config.WHISPER_MODEL,
             device=config.WHISPER_DEVICE,
@@ -65,6 +69,8 @@ def _is_hallucination(text: str) -> bool:
 
 
 def _speech_chunks(audio: np.ndarray) -> list[tuple[int, int]]:
+    from faster_whisper.vad import VadOptions, get_speech_timestamps
+
     opts = VadOptions(
         threshold=0.5,
         min_speech_duration_ms=250,
@@ -87,7 +93,7 @@ def _speech_chunks(audio: np.ndarray) -> list[tuple[int, int]]:
     return merged
 
 
-def _pick_language(model: WhisperModel, chunk: np.ndarray, previous: str) -> tuple[str, float]:
+def _pick_language(model: "WhisperModel", chunk: np.ndarray, previous: str) -> tuple[str, float]:
     if len(chunk) < MIN_DETECT_S * SR:
         return previous, 0.0
     _, _, all_probs = model.detect_language(audio=chunk)
@@ -105,6 +111,8 @@ def transcribe(
     progress: Callable[[float], None] = lambda f: None,
 ) -> list[dict]:
     """Return [{start, end, lang, text, speaker}] for an audio/video file."""
+    from faster_whisper import decode_audio
+
     mode = mode or config.ASR_MODE
     audio = decode_audio(path, sampling_rate=SR)
     with _lock:
