@@ -20,7 +20,8 @@ contract, responsibilities, network addresses, and backend handoff.
 
 ```sh
 cp .env.example .env
-# Choose a persistent N8N_ENCRYPTION_KEY before first startup.
+# For non-demo use, choose a persistent N8N_ENCRYPTION_KEY before first startup.
+# Keep it unchanged while reusing the n8n_data volume.
 docker compose up -d
 node n8n/test-contract.cjs
 node n8n/smoke-test.cjs

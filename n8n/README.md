@@ -10,13 +10,17 @@ is still needed on the teammates' machines.
 
 ```sh
 cp .env.example .env
-# Set a persistent N8N_ENCRYPTION_KEY in .env before first startup.
+# For anything beyond the local demo, replace N8N_ENCRYPTION_KEY before the
+# first startup. Never change it while reusing the same n8n_data volume.
 docker compose up -d
 node n8n/test-contract.cjs
 node n8n/smoke-test.cjs
 ```
 
-On Windows PowerShell use `Copy-Item .env.example .env`. Node 18+ is required only
+On Windows PowerShell use `Copy-Item .env.example .env`. The encryption key must
+remain stable because n8n uses it to protect credentials in `n8n_data`. If a key
+is lost, restore it from the team's secret store or initialize a new empty volume;
+another key cannot decrypt the existing data. Node 18+ is required only
 for developer scripts, not for running the containers. The default Compose stack
 starts n8n, its importer, and Mailpit; no GPU or model downloads are involved.
 Editor: http://localhost:5678; inbox: http://localhost:8025.
