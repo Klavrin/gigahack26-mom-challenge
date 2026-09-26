@@ -1,16 +1,18 @@
 import datetime as dt
 import shutil
+import tempfile
 from pathlib import Path
 
 import httpx
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 
-from . import config, pipeline
+from . import asr, config, mock, nemo_client, pipeline
 
 app = FastAPI(title="MoM - on-premise meeting minutes")
-STATIC = Path(__file__).resolve().parent.parent / "static"
+STATIC = config.STATIC_DIR
 
 
 @app.on_event("startup")
@@ -38,6 +40,11 @@ def create_job(
     return pipeline.submit(audio_path, meeting_type, date, job_id)
 
 
+@app.get("/api/jobs")
+def recent_jobs():
+    return pipeline.recent()
+
+
 @app.get("/api/jobs/{job_id}")
 def job_status(job_id: str):
     job = pipeline.get(job_id)
@@ -53,6 +60,41 @@ def _job_file(job_id: str, name: str) -> Path:
     return path
 
 
+class ActionItemEdit(BaseModel):
+    owner: str = ""
+    deadline: str = ""   # YYYY-MM-DD or ""
+
+
+class SendRequest(BaseModel):
+    action_items: list[ActionItemEdit] = []
+    meeting_type: str | None = None   # distribution list, chosen at review time
+    approved_by: str = ""             # reviewer name for the approval record
+
+
+@app.post("/api/jobs/{job_id}/send")
+def job_send(job_id: str, body: SendRequest):
+    job = pipeline.get(job_id)
+    if not job:
+        raise HTTPException(404)
+    try:
+        return pipeline.send(job, [a.model_dump() for a in body.action_items], body.meeting_type,
+                             body.approved_by)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except httpx.HTTPError as e:
+        raise HTTPException(502, f"n8n delivery failed: {e}")
+
+
+@app.get("/api/jobs/{job_id}/mom.json")
+def job_mom_json(job_id: str):
+    return FileResponse(_job_file(job_id, "mom.json"), media_type="application/json")
+
+
+@app.get("/api/jobs/{job_id}/segments.json")
+def job_segments(job_id: str):
+    return FileResponse(_job_file(job_id, "segments.json"), media_type="application/json")
+
+
 @app.get("/api/jobs/{job_id}/mom.html", response_class=HTMLResponse)
 def job_mom(job_id: str):
     return _job_file(job_id, "mom.html").read_text(encoding="utf-8")
@@ -63,17 +105,85 @@ def job_transcript(job_id: str):
     return _job_file(job_id, "transcript.txt").read_text(encoding="utf-8")
 
 
+@app.post("/api/asr")
+def asr_worker(file: UploadFile = File(...), mode: str = Form("")):
+    """ASR worker: the GPU node serves this, laptops reach it through ASR_URL."""
+    if mode and mode not in ("segment", "plain"):
+        raise HTTPException(400, "mode must be segment or plain")
+    if config.MOCK_MODELS:
+        return mock.transcribe(lambda f: None)
+    with tempfile.TemporaryDirectory(dir=config.DATA_DIR) as tmp:
+        path = Path(tmp) / ("audio" + (Path(file.filename or "").suffix or ".webm"))
+        with path.open("wb") as f:
+            shutil.copyfileobj(file.file, f)
+        try:
+            return asr.transcribe(str(path), mode=mode or None)
+        finally:
+            asr.unload()   # the LLM may share this GPU
+
+
+@app.get("/api/asr/health")
+def asr_health():
+    return {"ok": True, "mock": config.MOCK_MODELS, "model": config.WHISPER_MODEL,
+            "device": config.WHISPER_DEVICE, "compute_type": config.WHISPER_COMPUTE_TYPE,
+            "mode": config.ASR_MODE}
+
+
+def _get(url: str) -> httpx.Response | None:
+    try:
+        return httpx.get(url, timeout=3)
+    except httpx.HTTPError:
+        return None
+
+
+def _llm_status() -> dict:
+    node = {"where": config.OLLAMA_URL, "model": config.LLM_MODEL}
+    if config.MOCK_MODELS:
+        return {**node, "status": "mock"}
+    r = _get(f"{config.OLLAMA_URL}/api/tags")
+    if not r or r.status_code != 200:
+        return {**node, "status": "down", "detail": "Ollama unreachable"}
+    names = {m["name"] for m in r.json().get("models", [])}
+    if config.LLM_MODEL not in names and f"{config.LLM_MODEL}:latest" not in names:
+        return {**node, "status": "down", "detail": f"{config.LLM_MODEL} not pulled"}
+    return {**node, "status": "up"}
+
+
+def _asr_status() -> dict:
+    if config.MOCK_MODELS:
+        return {"where": "fixtures", "model": config.WHISPER_MODEL, "status": "mock"}
+    if not config.ASR_URL:
+        return {"where": "local", "model": config.WHISPER_MODEL,
+                "device": config.WHISPER_DEVICE, "status": "up"}
+    r = _get(f"{config.ASR_URL}/api/asr/health")
+    if not r or r.status_code != 200:
+        return {"where": config.ASR_URL, "model": config.WHISPER_MODEL, "status": "down",
+                "detail": "ASR worker unreachable"}
+    info = r.json()
+    return {"where": config.ASR_URL, "model": info.get("model"), "device": info.get("device"),
+            "status": "mock" if info.get("mock") else "up"}
+
+
 @app.get("/api/health")
 def health():
-    checks = {}
-    for name, url in (("ollama", f"{config.OLLAMA_URL}/api/tags"),
-                      ("n8n", config.N8N_WEBHOOK_URL.split("/webhook")[0] + "/healthz")):
-        try:
-            checks[name] = httpx.get(url, timeout=3).status_code == 200
-        except httpx.HTTPError:
-            checks[name] = False
-    return {"ok": all(checks.values()), **checks, "llm": config.LLM_MODEL,
-            "asr": config.WHISPER_MODEL, "asr_mode": config.ASR_MODE}
+    """Which node does what, and is it reachable. Shown in the web page header."""
+    n8n_base = config.N8N_WEBHOOK_URL.split("/webhook")[0]
+    r = _get(f"{n8n_base}/healthz")
+    nodes = {
+        "asr": _asr_status(),
+        "llm": _llm_status(),
+        "n8n": {"where": n8n_base, "status": "up" if r and r.status_code == 200 else "down"},
+    }
+    if config.ASR_BACKEND == "nemotron" and not config.MOCK_MODELS:
+        up = nemo_client.health(config.NEMOTRON_URL)
+        nodes["asr"] = {"where": config.NEMOTRON_URL, "model": "nemotron-3.5-asr",
+                        "status": "up" if up else "down"}
+    if config.DIARIZATION_URL and not config.MOCK_MODELS:
+        up = nemo_client.health(config.DIARIZATION_URL)
+        nodes["diarization"] = {"where": config.DIARIZATION_URL, "model": "sortformer-4spk",
+                                "status": "up" if up else "down"}
+    return {"ok": all(n["status"] != "down" for n in nodes.values()),
+            "mock": config.MOCK_MODELS, "asr_mode": config.ASR_MODE, "nodes": nodes}
 
 
 @app.get("/")
@@ -81,4 +191,4 @@ def index():
     return FileResponse(STATIC / "index.html")
 
 
-app.mount("/static", StaticFiles(directory=STATIC), name="static")
+app.mount("/static", StaticFiles(directory=STATIC, check_dir=False), name="static")

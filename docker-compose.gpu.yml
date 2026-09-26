@@ -1,0 +1,67 @@
+# GPU node (teammate's machine): Ollama for the LLM + the api image as ASR worker
+# (POST /api/asr). The laptop reaches both over the hospital LAN; firewall
+# ports 8000 and 11434 to the laptop's IP only (see README).
+#   docker compose -f docker-compose.gpu.yml up -d --build
+#   sh scripts/pull-models.sh          # once, online
+name: mom-gpu
+
+x-gpu: &gpu
+  deploy:
+    resources:
+      reservations:
+        devices:
+          - driver: nvidia
+            count: all
+            capabilities: [gpu]
+
+services:
+  asr:
+    build: ./api                 # default BASE_IMAGE = CUDA
+    <<: *gpu
+    ports:
+      - "${ASR_PORT:-8000}:8000" # LAN: ASR worker for the laptop (8001 when on the same machine)
+    environment:
+      MOCK_MODELS: "0"
+      WHISPER_MODEL: ${WHISPER_MODEL:-large-v3-turbo}
+      WHISPER_DEVICE: cuda
+      WHISPER_COMPUTE_TYPE: ${WHISPER_COMPUTE_TYPE:-int8_float16}
+      ASR_MODE: ${ASR_MODE:-segment}
+      ASR_BACKEND: ${ASR_BACKEND:-whisper}
+      NEMOTRON_URL: ${NEMOTRON_URL:-http://nemo:8001}
+      OFFLINE: ${OFFLINE:-0}
+      HF_HUB_OFFLINE: ${OFFLINE:-0}
+      OLLAMA_URL: http://ollama:11434
+      LLM_MODEL: ${LLM_MODEL:-qwen3:8b}
+      TZ: Europe/Chisinau
+    volumes:
+      - ./models/whisper:/models/whisper
+      - ./data:/data               # temporary uploads, deleted after transcription
+      - ./glossary:/glossary:ro
+      - ./eval:/app/eval:ro
+    depends_on: [ollama]
+    restart: unless-stopped
+
+  ollama:
+    image: ollama/ollama:latest
+    <<: *gpu
+    ports:
+      - "11434:11434"            # LAN: LLM for the laptop
+    volumes:
+      - ./models/ollama:/root/.ollama
+    restart: unless-stopped
+
+  # Nemotron 3.5 ASR + Sortformer diarization. Opt-in: add --profile nemo
+  nemo:
+    build: ./services/nemo-server
+    profiles: [nemo]
+    <<: *gpu
+    ports:
+      - "${NEMO_PORT:-8002}:8001"   # LAN: /transcribe + /diarize
+    environment:
+      NEMO_LOAD: ${NEMO_LOAD:-asr,diar}
+      HF_HOME: /models/hf
+      HF_HUB_OFFLINE: ${OFFLINE:-0}         # 1 = load weights from disk only
+      TRANSFORMERS_OFFLINE: ${OFFLINE:-0}
+    volumes:
+      - ./models/hf:/models/hf
+    restart: unless-stopped

@@ -1,52 +1,44 @@
-# Portable automation stack: docker compose up -d
-# Old GPU backend only: docker compose --profile legacy-nvidia up -d --build
+# Laptop stack: web app + job queue, n8n, Mailpit. No models run here.
+# ASR and LLM run on the GPU node (docker-compose.gpu.yml) on the hospital LAN,
+# or are replaced by canned fixtures with MOCK_MODELS=1 (the default).
+#   docker compose up -d --build
+# One machine (demo):  docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
+#   (+ -f docker-compose.offline.yml for sealed mode, see README)
 name: mom
-
-x-gpu: &gpu
-  deploy:
-    resources:
-      reservations:
-        devices:
-          - driver: nvidia
-            count: all
-            capabilities: [gpu]
 
 services:
   api:
-    profiles: [legacy-nvidia]
-    build: ./api
-    <<: *gpu
+    build:
+      context: ./api
+      args:
+        BASE_IMAGE: python:3.12-slim   # no CUDA needed on the laptop
     ports:
       - "8000:8000"          # web app, reachable from the internal network
     environment:
-      WHISPER_MODEL: ${WHISPER_MODEL:-large-v3-turbo}
-      WHISPER_DEVICE: ${WHISPER_DEVICE:-cuda}
-      WHISPER_COMPUTE_TYPE: ${WHISPER_COMPUTE_TYPE:-int8_float16}
+      MOCK_MODELS: ${MOCK_MODELS:-1}
+      ASR_URL: ${ASR_URL:-}
       ASR_MODE: ${ASR_MODE:-segment}
-      LLM_MODEL: ${LLM_MODEL:-qwen2.5:7b-instruct}
+      ASR_BACKEND: ${ASR_BACKEND:-whisper}
+      NEMOTRON_URL: ${NEMOTRON_URL:-http://nemo:8001}
+      DIARIZATION_URL: ${DIARIZATION_URL:-}
+      OLLAMA_URL: ${OLLAMA_URL:-http://localhost:11434}
+      LLM_MODEL: ${LLM_MODEL:-qwen3:8b}
       LLM_NUM_CTX: ${LLM_NUM_CTX:-16384}
       CORRECT_TRANSCRIPT: ${CORRECT_TRANSCRIPT:-0}
       KEEP_AUDIO: ${KEEP_AUDIO:-0}
+      WHISPER_MODEL: ${WHISPER_MODEL:-large-v3-turbo}
+      # Only used if ASR_URL is empty and mock is off (slow CPU fallback).
+      WHISPER_DEVICE: cpu
+      WHISPER_COMPUTE_TYPE: int8
       OFFLINE: ${OFFLINE:-0}
-      OLLAMA_URL: ${QWEN_URL:-http://ollama:11434}
+      HF_HUB_OFFLINE: ${OFFLINE:-0}
       N8N_WEBHOOK_URL: ${N8N_WEBHOOK_URL:-http://n8n:5678/webhook/mom}
       TZ: Europe/Chisinau
     volumes:
-      - ./models/whisper:/models/whisper
       - ./data:/data
       - ./glossary:/glossary:ro
       - ./eval:/app/eval:ro
-    depends_on: [ollama, n8n]
-    restart: unless-stopped
-
-  ollama:
-    profiles: [legacy-nvidia]
-    image: ollama/ollama:latest
-    <<: *gpu
-    ports:
-      - "127.0.0.1:11434:11434"
-    volumes:
-      - ./models/ollama:/root/.ollama
+    depends_on: [n8n]
     restart: unless-stopped
 
   # One-shot: imports the SMTP credential + routing workflow and activates it.
