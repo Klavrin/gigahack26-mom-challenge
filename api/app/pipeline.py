@@ -120,7 +120,11 @@ def send(job: dict, action_items: list[dict], meeting_type: str | None = None,
         for item, edit in zip(items, action_items):
             deadline = edit["deadline"].strip()
             if deadline:
-                dt.date.fromisoformat(deadline)   # ValueError -> 400
+                d = dt.date.fromisoformat(deadline)   # ValueError -> 400
+                if not date <= d <= (date + dt.timedelta(days=366)):
+                    raise ValueError(f"Termenul {d.strftime('%d.%m.%Y')} trebuie să fie între data ședinței "
+                                     f"și un an după ({date.strftime('%d.%m.%Y')} - "
+                                     f"{(date + dt.timedelta(days=366)).strftime('%d.%m.%Y')}).")
             item["owner"], item["deadline"] = edit["owner"].strip(), deadline
         if meeting_type:
             job["meeting_type"] = meeting_type   # the reviewer picks who receives it

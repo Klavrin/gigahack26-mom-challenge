@@ -52,6 +52,11 @@
           ],
           "additionalProperties": false
         },
+        "summary": {
+          "type": "string",
+          "maxLength": 20000,
+          "description": "Optional: shown first in the email. Older senders put it in important_notes as 'Rezumat: ...'."
+        },
         "participants": {
           "type": "array",
           "items": {

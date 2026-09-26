@@ -3,6 +3,7 @@ approved state snapshot + a DOCX of the minutes. The transcript never leaves the
 import base64
 import datetime as dt
 import io
+import re
 
 from docx import Document
 from docx.shared import Pt
@@ -12,13 +13,20 @@ from . import render
 DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
 
+VOICE_LABEL = re.compile(r"^S\d+$")   # diarization labels, not people
+
+
+def _person(value) -> str | None:
+    value = (value or "").strip()
+    return value if value and not VOICE_LABEL.match(value) else None
+
+
 def _strings(items) -> list[str]:
     return [s.strip() for s in items if isinstance(s, str) and s.strip()]
 
 
 def to_state(job: dict, mom: dict, ended_at: dt.datetime) -> dict:
     started_at = ended_at - dt.timedelta(seconds=float(job.get("audio_s") or 0))
-    notes = [f"Rezumat: {mom['summary'].strip()}"] if (mom.get("summary") or "").strip() else []
     return {
         "meeting": {
             "id": job["id"],
@@ -27,21 +35,22 @@ def to_state(job: dict, mom: dict, ended_at: dt.datetime) -> dict:
             "started_at": started_at.isoformat(timespec="seconds"),
             "ended_at": ended_at.isoformat(timespec="seconds"),
         },
-        "participants": _strings(mom.get("participants", [])),
+        "summary": (mom.get("summary") or "").strip(),
+        "participants": [p for p in _strings(mom.get("participants", [])) if _person(p)],
         "topics": _strings(f"{t.get('topic', '').strip()}: {t.get('discussion', '').strip()}".strip(": ")
                            for t in mom.get("topics", [])),
         "decisions": _strings(d.get("decision", "") for d in mom.get("decisions", [])),
         "action_items": [
             {
                 "description": a["task"].strip(),
-                "owner": (a.get("owner") or "").strip() or None,
+                "owner": _person(a.get("owner")),
                 "deadline": (a.get("deadline") or a.get("deadline_text") or "").strip() or None,
                 "status": "open",
             }
             for a in mom.get("action_items", []) if (a.get("task") or "").strip()
         ],
         "open_questions": _strings(mom.get("open_questions", [])),
-        "important_notes": notes,
+        "important_notes": [],
     }
 
 

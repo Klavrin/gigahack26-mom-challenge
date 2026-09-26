@@ -34,6 +34,19 @@ for (const mutate of mutations) {
  assert.equal(run({body}).json.validation,'invalid',mutate.toString());
 }
 for(const body of [null,[],{}, {job_id:'legacy',meeting_type:'medical',html:'<p>Unapproved</p>'}]) assert.equal(run({body}).json.validation,'invalid');
+// The email body is the full minutes: summary first, voice labels never shown as people.
+const full=run({body:structuredClone(sample)}).json.html;
+for (const part of ['Rezumat',sample.state.summary,'Decizii','Sarcini','Întrebări deschise','Participanți'])
+  assert.ok(full.includes(part),`email must contain ${part}`);
+assert.ok(full.indexOf('Rezumat')<full.indexOf('Decizii'),'summary comes before decisions');
+const legacy=structuredClone(sample);delete legacy.state.summary;legacy.state.important_notes=['Rezumat: Legacy summary.','Other note'];
+const legacyHtml=run({body:legacy}).json.html;
+assert.ok(legacyHtml.includes('Legacy summary.')&&!legacyHtml.includes('Rezumat: Legacy'),'legacy "Rezumat:" note becomes the summary');
+const labels=structuredClone(sample);labels.state.participants=['Ana Ceban','S2'];labels.state.action_items[0].owner='S3';
+const labelHtml=run({body:labels}).json.html;
+assert.ok(!/>S2</.test(labelHtml)&&!/>S3</.test(labelHtml),'voice labels are not people');
+const dated=structuredClone(sample);dated.state.action_items[0].deadline='2026-10-02';
+assert.ok(run({body:dated}).json.html.includes('02.10.2026'),'ISO deadlines shown as dd.mm.yyyy');
 const escaped=structuredClone(sample);escaped.state.meeting.title='<script>alert(1)</script>';
 assert.ok(run({body:escaped}).json.html.includes('&lt;script&gt;'));
 const both=structuredClone(sample);

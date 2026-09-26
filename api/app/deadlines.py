@@ -42,8 +42,16 @@ def resolve(text: str, meeting: dt.date) -> str | None:
         return None
     t = normalize(text)
 
-    # explicit dates: 15.10 / 15.10.2026 / 15/10
+    # explicit dates: 15.10 / 15.10.2026 / 15/10. Without a year, "1.02" is as likely a dose
+    # ("1.02 mg") as a date: accept it only alone or right after a deadline word.
     m = re.search(r"\b(\d{1,2})[./](\d{1,2})(?:[./](\d{2,4}))?\b", t)
+    if m and not m[3]:
+        after_unit = re.match(r"\s*(mg|mcg|µg|ml|g|kg|l|%|mmol|ui|u\b|мг|мл|ед)", t[m.end():])
+        cue = re.search(r"(pana|pe|la|din|pina|до|к|by|until|before|on|termen|deadline|inainte de)\s*$",
+                        t[:m.start()])
+        alone = not t[:m.start()].strip(" ,.;:") and not t[m.end():].strip(" ,.;:")
+        if after_unit or not (cue or alone):
+            m = None
     if m:
         day, month, year = int(m[1]), int(m[2]), m[3]
         y = int(year) + (2000 if year and len(year) == 2 else 0) if year else meeting.year

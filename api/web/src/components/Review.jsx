@@ -25,7 +25,11 @@ export default function Review({ job, onSent, lang }) {
   }, [job.id]);
 
   const missing = items.reduce((n, a) => n + !a.owner.trim() + !a.deadline, 0);
-  const people = useMemo(() => mom?.participants || [], [mom]);
+  // Voice labels (S1, S2 from diarization) are not people: never suggest them as owners.
+  const people = useMemo(() => (mom?.participants || []).filter((p) => !/^S\d+$/.test(p.trim())), [mom]);
+  // A deadline before the meeting (the browser happily completes "4" to 2004) is a typo.
+  const minDeadline = job.meeting_date;
+  const maxDeadline = `${Number(job.meeting_date.slice(0, 4)) + 1}${job.meeting_date.slice(4)}`;
 
   if (!mom) return <div className="spinner" aria-hidden="true" />;
 
@@ -106,7 +110,7 @@ export default function Review({ job, onSent, lang }) {
                       </label>
                       <label className={`field${!v.deadline ? " empty" : ""}`}>
                         <span>{t.deadline}</span>
-                        <input type="date" value={v.deadline} disabled={sending}
+                        <input type="date" value={v.deadline} disabled={sending} min={minDeadline} max={maxDeadline}
                                onChange={(e) => update(i, "deadline", e.target.value)} />
                         {a.deadline_text && <small>{t.spoken} „{a.deadline_text}”</small>}
                       </label>
