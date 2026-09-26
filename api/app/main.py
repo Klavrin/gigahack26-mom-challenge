@@ -105,21 +105,35 @@ def job_transcript(job_id: str):
     return _job_file(job_id, "transcript.txt").read_text(encoding="utf-8")
 
 
+_asr_progress: dict[str, float] = {}   # progress_id -> 0..1, only while a request runs
+
+
 @app.post("/api/asr")
-def asr_worker(file: UploadFile = File(...), mode: str = Form("")):
+def asr_worker(file: UploadFile = File(...), mode: str = Form(""), progress_id: str = Form("")):
     """ASR worker: the GPU node serves this, laptops reach it through ASR_URL."""
     if mode and mode not in config.ASR_MODES:
         raise HTTPException(400, f"mode must be one of {config.ASR_MODES}")
-    if config.MOCK_MODELS:
-        return mock.transcribe(lambda f: None)
-    with tempfile.TemporaryDirectory(dir=config.DATA_DIR) as tmp:
-        path = Path(tmp) / ("audio" + (Path(file.filename or "").suffix or ".webm"))
-        with path.open("wb") as f:
-            shutil.copyfileobj(file.file, f)
-        try:
-            return asr.transcribe(str(path), mode=mode or None)
-        finally:
-            asr.unload()   # the LLM may share this GPU
+    pid = progress_id[:64]
+    report = (lambda f: _asr_progress.__setitem__(pid, round(f, 3))) if pid else (lambda f: None)
+    try:
+        if config.MOCK_MODELS:
+            return mock.transcribe(report)
+        with tempfile.TemporaryDirectory(dir=config.DATA_DIR) as tmp:
+            path = Path(tmp) / ("audio" + (Path(file.filename or "").suffix or ".webm"))
+            with path.open("wb") as f:
+                shutil.copyfileobj(file.file, f)
+            try:
+                return asr.transcribe(str(path), mode=mode or None, progress=report)
+            finally:
+                asr.unload()   # the LLM may share this GPU
+    finally:
+        _asr_progress.pop(pid, None)
+
+
+@app.get("/api/asr/progress/{progress_id}")
+def asr_progress(progress_id: str):
+    """Polled by the laptop while /api/asr runs (FastAPI serves it from another thread)."""
+    return {"progress": _asr_progress.get(progress_id, 0.0)}
 
 
 @app.get("/api/asr/health")
