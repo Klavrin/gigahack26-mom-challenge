@@ -1,6 +1,7 @@
 # On-premise MoM pipeline. Everything runs on one machine; nothing calls out.
 # First run (online, once):   docker compose up -d --build && ./scripts/pull-models.sh
 # Demo run (Wi-Fi off):       docker compose up -d
+# With NVIDIA speech models:  docker compose --profile nemo up -d   (+ ASR_BACKEND / DIARIZATION_URL in .env)
 name: mom
 
 x-gpu: &gpu
@@ -23,11 +24,15 @@ services:
       WHISPER_DEVICE: ${WHISPER_DEVICE:-cuda}
       WHISPER_COMPUTE_TYPE: ${WHISPER_COMPUTE_TYPE:-int8_float16}
       ASR_MODE: ${ASR_MODE:-segment}
+      ASR_BACKEND: ${ASR_BACKEND:-whisper}
+      NEMOTRON_URL: ${NEMOTRON_URL:-http://nemo:8001}
+      DIARIZATION_URL: ${DIARIZATION_URL:-}
       LLM_MODEL: ${LLM_MODEL:-qwen2.5:7b-instruct}
       LLM_NUM_CTX: ${LLM_NUM_CTX:-16384}
       CORRECT_TRANSCRIPT: ${CORRECT_TRANSCRIPT:-0}
       KEEP_AUDIO: ${KEEP_AUDIO:-0}
       OFFLINE: ${OFFLINE:-0}
+      HF_HUB_OFFLINE: ${OFFLINE:-0}
       OLLAMA_URL: http://ollama:11434
       N8N_WEBHOOK_URL: http://n8n:5678/webhook/mom
       TZ: Europe/Chisinau
@@ -46,6 +51,22 @@ services:
       - "127.0.0.1:11434:11434"
     volumes:
       - ./models/ollama:/root/.ollama
+    restart: unless-stopped
+
+  # Nemotron 3.5 ASR + Sortformer diarization. Opt-in: docker compose --profile nemo up -d
+  nemo:
+    build: ./services/nemo-server
+    profiles: [nemo]
+    <<: *gpu
+    ports:
+      - "127.0.0.1:8001:8001"
+    environment:
+      NEMO_LOAD: ${NEMO_LOAD:-asr,diar}
+      HF_HOME: /models/hf
+      HF_HUB_OFFLINE: ${OFFLINE:-0}         # 1 = load weights from disk only
+      TRANSFORMERS_OFFLINE: ${OFFLINE:-0}
+    volumes:
+      - ./models/hf:/models/hf
     restart: unless-stopped
 
   # One-shot: imports the SMTP credential + routing workflow and activates it.

@@ -18,6 +18,14 @@ WHISPER_DIR = Path(_env("WHISPER_DIR", "/models/whisper"))
 # "plain"   = stock Whisper, one language per 30 s window (baseline for WER)
 ASR_MODE = _env("ASR_MODE", "segment")
 ASR_LANGUAGES = tuple(_env("ASR_LANGUAGES", "ro,ru,en").split(","))
+# Which recogniser transcribes each VAD chunk:
+# "whisper"  = faster-whisper in this container
+# "nemotron" = Nemotron 3.5 ASR in the local nemo-server container
+ASR_BACKEND = _env("ASR_BACKEND", "whisper")
+NEMOTRON_URL = _env("NEMOTRON_URL", "http://nemo:8001")
+NEMOTRON_LOCALES = {"ro": "ro-RO", "ru": "ru-RU", "en": "en-US"}
+# Speaker diarization (Sortformer in nemo-server). Empty = off.
+DIARIZATION_URL = _env("DIARIZATION_URL", "")
 
 OLLAMA_URL = _env("OLLAMA_URL", "http://localhost:11434")
 LLM_MODEL = _env("LLM_MODEL", "qwen2.5:7b-instruct")

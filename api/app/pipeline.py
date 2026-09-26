@@ -6,11 +6,12 @@ import threading
 import time
 import traceback
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import httpx
 
-from . import asr, config, llm, render
+from . import asr, config, llm, merge, nemo_client, render
 
 STAGES = ["queued", "transcribing", "correcting", "extracting", "sending", "done"]
 
@@ -61,11 +62,25 @@ def run(job: dict) -> None:
         return time.time()
 
     t = stage("transcribing")
-    segments = asr.transcribe(job["audio"], progress=lambda f: job.update(progress=f))
-    asr.unload()   # give the GPU to the LLM
+    audio = asr.load_audio(job["audio"])
+    # Diarization runs alongside ASR; if it fails the meeting still goes out,
+    # just without speaker labels.
+    with ThreadPoolExecutor(1) as pool:
+        diar = pool.submit(nemo_client.diarize, audio) if config.DIARIZATION_URL else None
+        segments = asr.transcribe(audio, progress=lambda f: job.update(progress=f))
+        asr.unload()   # give the GPU to the LLM
+        turns = []
+        if diar:
+            try:
+                turns = diar.result()
+            except Exception as e:
+                job["warning"] = f"diarization failed: {e}"
+    segments = merge.assign_speakers(segments, turns)
     job["timings"]["asr_s"] = round(time.time() - t, 1)
+    del audio
     if not config.KEEP_AUDIO:
         Path(job["audio"]).unlink(missing_ok=True)
+    _write(jid, "diarization.json", json.dumps(turns, indent=1))
     _write(jid, "transcript_raw.txt", asr.to_text(segments))
 
     if config.CORRECT_TRANSCRIPT:

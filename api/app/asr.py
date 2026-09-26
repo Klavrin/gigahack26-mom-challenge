@@ -6,17 +6,21 @@ garbled. "segment" mode instead:
   1. splits the audio at pauses with Silero VAD (utterance-sized chunks),
   2. detects the language of each chunk, restricted to ro/ru/en,
   3. transcribes each chunk with that language forced and a domain prompt.
+
+ASR_BACKEND picks the recogniser for step 3: faster-whisper here, or Nemotron
+3.5 ASR in the local nemo-server container. Both share the same VAD chunks, so
+their WER can be compared like for like.
 """
 import gc
 import json
 import threading
-from typing import Callable, Optional
+from typing import Callable, Optional, Union
 
 import numpy as np
 from faster_whisper import WhisperModel, decode_audio
 from faster_whisper.vad import VadOptions, get_speech_timestamps
 
-from . import config
+from . import config, nemo_client
 
 SR = 16000
 MIN_DETECT_S = 1.2     # shorter chunks inherit the previous language
@@ -99,19 +103,49 @@ def _pick_language(model: WhisperModel, chunk: np.ndarray, previous: str) -> tup
     return lang, prob
 
 
+def load_audio(path: str) -> np.ndarray:
+    return decode_audio(path, sampling_rate=SR)
+
+
 def transcribe(
-    path: str,
+    audio: Union[str, np.ndarray],
     mode: Optional[str] = None,
+    backend: Optional[str] = None,
     progress: Callable[[float], None] = lambda f: None,
 ) -> list[dict]:
-    """Return [{start, end, lang, text, speaker}] for an audio/video file."""
+    """Return [{start, end, lang, text, speaker}] for an audio file or 16 kHz array."""
     mode = mode or config.ASR_MODE
-    audio = decode_audio(path, sampling_rate=SR)
+    backend = backend or config.ASR_BACKEND
+    if isinstance(audio, str):
+        audio = load_audio(audio)
+    if backend == "nemotron":
+        return _transcribe_nemotron(audio, progress)
     with _lock:
         model = _load()
         if mode == "plain":
             return _transcribe_plain(model, audio, progress)
         return _transcribe_segmented(model, audio, progress)
+
+
+def _transcribe_nemotron(audio, progress) -> list[dict]:
+    """Same VAD chunks as the Whisper path; each chunk goes to the local Nemotron
+    container in auto-language mode. If it picks a language outside ro/ru/en
+    (e.g. Moldovan Romanian heard as another locale), retry with the running one."""
+    chunks = _speech_chunks(audio)
+    out: list[dict] = []
+    lang = config.ASR_LANGUAGES[0]
+    for i, (start, end) in enumerate(chunks):
+        chunk = audio[start:end]
+        text, detected = nemo_client.transcribe_chunk(chunk, "auto")
+        if detected in config.ASR_LANGUAGES:
+            lang = detected
+        elif text:
+            text, _ = nemo_client.transcribe_chunk(chunk, config.NEMOTRON_LOCALES[lang])
+        if not _is_hallucination(text):
+            out.append({"start": round(start / SR, 2), "end": round(end / SR, 2),
+                        "lang": lang, "text": text, "speaker": None})
+        progress((i + 1) / len(chunks))
+    return out
 
 
 def _transcribe_plain(model, audio, progress) -> list[dict]:

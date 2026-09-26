@@ -30,6 +30,24 @@ meeting gets translated or garbled. We:
 
 `ASR_MODE=plain` runs stock Whisper so we can measure the difference (see *Evaluation*).
 
+## ASR backends & speaker diarization
+
+Both recognisers get the **same VAD chunks**, so WER comparisons are like for like.
+
+| `.env` | What runs |
+|---|---|
+| `ASR_BACKEND=whisper` (default) | faster-whisper `large-v3-turbo` inside `api` |
+| `ASR_BACKEND=nemotron` | [Nemotron 3.5 ASR](https://huggingface.co/nvidia/nemotron-3.5-asr-streaming-0.6b) in the local `nemo` container (auto language per chunk, retried in ro/ru/en if it guesses another locale) |
+| `DIARIZATION_URL=http://nemo:8001` | [Streaming Sortformer](https://huggingface.co/nvidia/diar_streaming_sortformer_4spk-v2.1) speaker turns (max 4 speakers), merged onto the transcript by time overlap |
+
+```bash
+docker compose --profile nemo up -d --build     # adds the nemo container
+docker compose exec api python -m app.cli transcribe /data/dev.wav --backend nemotron --out /data/out/nemotron.txt
+```
+
+If diarization fails the minutes are still sent, just without speaker labels.
+Interfaces between services: [docs/contracts.md](docs/contracts.md).
+
 ## Run it
 
 Requirements: Docker Desktop (WSL2 backend) with an NVIDIA GPU (8 GB is enough).
@@ -44,7 +62,16 @@ sh scripts/pull-models.sh        # once, online: LLM + Whisper weights → ./mod
 - Inbox (Mailpit): http://localhost:8025
 - n8n editor: http://localhost:5678 (workflow *MoM routing & delivery* is imported and active)
 
-**Offline demo:** set `OFFLINE=1` in `.env`, `docker compose up -d`, turn Wi-Fi off, upload.
+**Offline demo (sealed mode):** every compute container is put on a Docker network with
+no route to the internet; only an nginx gateway (config only, no code) publishes ports.
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.offline.yml up -d
+sh scripts/egress-check.sh   # every container must print BLOCKED
+sh scripts/gpu-check.sh      # Whisper, Ollama (and NeMo) must be on the GPU
+```
+
+Then turn Wi-Fi off (and quit Tailscale) and run a meeting end to end.
 
 ## Privacy / security
 

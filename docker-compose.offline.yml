@@ -1,0 +1,54 @@
+# Demo / hospital mode. Every compute container (api, LLM, ASR, n8n, SMTP) sits on a
+# Docker network with NO route to the internet (internal: true). The only container
+# with an outside interface is the nginx gateway, which has no code - just proxy rules.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.offline.yml up -d
+#   sh scripts/egress-check.sh      # proves every container is cut off
+#
+# Pull/download models first with the normal compose file (they need internet once).
+networks:
+  sealed:
+    internal: true
+  edge: {}
+
+services:
+  api:
+    networks: [sealed]
+    ports: !reset []
+    environment:
+      OFFLINE: "1"
+      HF_HUB_OFFLINE: "1"
+
+  ollama:
+    networks: [sealed]
+    ports: !reset []
+
+  nemo:
+    networks: [sealed]
+    ports: !reset []
+    environment:
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+
+  n8n-init:
+    networks: [sealed]
+
+  n8n:
+    networks: [sealed]
+    ports: !reset []
+
+  mailpit:
+    networks: [sealed]
+    ports: !reset []
+
+  gateway:
+    image: nginx:1.27-alpine
+    networks: [sealed, edge]
+    ports:
+      - "8000:8000"             # web app
+      - "8025:8025"             # inbox
+      - "127.0.0.1:5678:5678"   # n8n editor (show the workflow to the jury)
+    volumes:
+      - ./deploy/gateway.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on: [api, mailpit, n8n]
+    restart: unless-stopped

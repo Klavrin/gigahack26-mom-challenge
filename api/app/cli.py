@@ -2,6 +2,7 @@
 
   python -m app.cli download                       # fetch Whisper weights once (online)
   python -m app.cli transcribe clip.wav --mode plain --out /data/out/plain.txt
+  python -m app.cli transcribe clip.wav --backend nemotron --out /data/out/nemotron.txt
   python -m app.cli mom /data/out/segment.txt --type medical --date 2026-09-25
 """
 import argparse
@@ -22,6 +23,7 @@ def main() -> None:
     t = sub.add_parser("transcribe")
     t.add_argument("audio")
     t.add_argument("--mode", choices=["segment", "plain"], default=config.ASR_MODE)
+    t.add_argument("--backend", choices=["whisper", "nemotron"], default=config.ASR_BACKEND)
     t.add_argument("--out", help="write transcript here (default: stdout)")
     t.add_argument("--correct", action="store_true", help="run the LLM glossary correction")
 
@@ -39,7 +41,7 @@ def main() -> None:
 
     elif args.cmd == "transcribe":
         start = time.time()
-        segments = asr.transcribe(args.audio, mode=args.mode)
+        segments = asr.transcribe(args.audio, mode=args.mode, backend=args.backend)
         if args.correct:
             asr.unload()
             segments = llm.correct_transcript(segments)
@@ -53,7 +55,7 @@ def main() -> None:
         else:
             print(text)
         audio_s = segments[-1]["end"] if segments else 0
-        print(f"\n[{args.mode}] {len(segments)} segments, {audio_s / 60:.1f} min audio "
+        print(f"\n[{args.backend}/{args.mode}] {len(segments)} segments, {audio_s / 60:.1f} min audio "
               f"in {took:.0f}s")
 
     elif args.cmd == "mom":

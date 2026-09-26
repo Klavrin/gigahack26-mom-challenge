@@ -7,7 +7,7 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import config, pipeline
+from . import config, nemo_client, pipeline
 
 app = FastAPI(title="MoM - on-premise meeting minutes")
 STATIC = Path(__file__).resolve().parent.parent / "static"
@@ -72,8 +72,13 @@ def health():
             checks[name] = httpx.get(url, timeout=3).status_code == 200
         except httpx.HTTPError:
             checks[name] = False
+    if config.ASR_BACKEND == "nemotron":
+        checks["nemotron"] = nemo_client.health(config.NEMOTRON_URL)
+    if config.DIARIZATION_URL:
+        checks["diarization"] = nemo_client.health(config.DIARIZATION_URL)
+    asr_model = "nemotron-3.5-asr" if config.ASR_BACKEND == "nemotron" else config.WHISPER_MODEL
     return {"ok": all(checks.values()), **checks, "llm": config.LLM_MODEL,
-            "asr": config.WHISPER_MODEL, "asr_mode": config.ASR_MODE}
+            "asr": asr_model, "asr_mode": config.ASR_MODE}
 
 
 @app.get("/")
