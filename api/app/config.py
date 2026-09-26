@@ -17,7 +17,16 @@ WHISPER_DIR = Path(_env("WHISPER_DIR", "/models/whisper"))
 # "segment" = VAD split + per-utterance language ID (our pipeline)
 # "plain"   = stock Whisper, one language per 30 s window (baseline for WER)
 ASR_MODE = _env("ASR_MODE", "segment")
-ASR_LANGUAGES = tuple(_env("ASR_LANGUAGES", "ro,ru,en").split(","))
+ASR_LANGUAGES = tuple(_env("ASR_LANGUAGES", "ro,ru,en").split(","))   # first = primary language
+# Glossary prompt for Whisper. Off by default: on noisy audio Whisper copies the
+# prompt into the transcript (tested on a 96-min recording).
+WHISPER_PROMPTS = _flag("WHISPER_PROMPTS")
+# Another language only replaces the primary one if detection is at least this sure...
+SWITCH_MIN_PROB = float(_env("SWITCH_MIN_PROB", "0.5"))
+# ...and its transcription is this much more likely (avg log-prob per token).
+SWITCH_MARGIN = float(_env("SWITCH_MARGIN", "0.1"))
+# Chunks whose best transcription is below this are unintelligible noise: dropped.
+MIN_AVG_LOGPROB = float(_env("MIN_AVG_LOGPROB", "-0.95"))
 # Which recogniser transcribes each VAD chunk:
 # "whisper"  = faster-whisper in this container
 # "nemotron" = Nemotron 3.5 ASR in the local nemo-server container

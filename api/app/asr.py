@@ -13,6 +13,7 @@ their WER can be compared like for like.
 """
 import gc
 import json
+import re
 import threading
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Optional, Union
@@ -33,10 +34,14 @@ MAX_CHUNK_S = 20.0
 
 # Classic Whisper hallucinations on silence/noise (subtitle credits, etc.).
 HALLUCINATIONS = (
-    "subtitrare", "subtitrarea", "mulțumesc pentru vizionare", "vă mulțumim pentru vizionare",
-    "abonați-vă", "субтитры", "продолжение следует", "редактор субтитров",
-    "thanks for watching", "thank you for watching", "subscribe",
+    "subtitrare", "subtitrarea", "vizionare", "abonați-vă", "субтитры", "продолжение следует",
+    "редактор субтитров", "конец", "thanks for watching", "thank you for watching", "subscribe",
 )
+# Whole-segment hallucinations: fine inside a sentence, fake when they are all there is.
+EXACT_HALLUCINATIONS = {
+    "mulțumesc", "vă mulțumesc", "vă mulțumesc frumos", "mulțumesc frumos", "спасибо",
+    "спасибо за внимание", "thank you", "thank you very much", "amin",
+}
 
 _model: Optional["WhisperModel"] = None
 _lock = threading.Lock()
@@ -69,8 +74,15 @@ def load_prompts() -> dict:
 
 
 def _is_hallucination(text: str) -> bool:
-    t = text.lower().strip(" .!?…")
-    return not t or (len(t) < 80 and any(h in t for h in HALLUCINATIONS))
+    t = text.lower().strip(" .!?…,")
+    if not t or t in EXACT_HALLUCINATIONS:
+        return True
+    if re.search(r"(\w)\1{5,}", t):                     # same letter 6+ times: "пааааааа"
+        return True
+    words = t.split()
+    if len(words) >= 6 and len(set(words)) / len(words) < 0.35:   # "a declari, a declari, ..."
+        return True
+    return len(t) < 80 and any(h in t for h in HALLUCINATIONS)
 
 
 def _speech_chunks(audio: np.ndarray) -> list[tuple[int, int]]:
@@ -96,18 +108,6 @@ def _speech_chunks(audio: np.ndarray) -> list[tuple[int, int]]:
                 continue
         merged.append((start, end))
     return merged
-
-
-def _pick_language(model: "WhisperModel", chunk: np.ndarray, previous: str) -> tuple[str, float]:
-    if len(chunk) < MIN_DETECT_S * SR:
-        return previous, 0.0
-    _, _, all_probs = model.detect_language(audio=chunk)
-    allowed = [(lang, p) for lang, p in all_probs if lang in config.ASR_LANGUAGES]
-    lang, prob = max(allowed, key=lambda x: x[1])
-    # Low-confidence switches are usually noise; stay with the running language.
-    if prob < 0.4 and previous:
-        return previous, prob
-    return lang, prob
 
 
 def load_audio(path: str) -> np.ndarray:
@@ -168,31 +168,51 @@ def _transcribe_plain(model, audio, progress) -> list[dict]:
     return out
 
 
+def _decode(model, chunk, lang: str, prompt: Optional[str]) -> tuple[str, float]:
+    """-> (text, token-weighted average log-prob)."""
+    segments, _ = model.transcribe(
+        chunk,
+        language=lang,
+        beam_size=5,
+        initial_prompt=prompt,
+        condition_on_previous_text=False,   # stops repetition loops
+        vad_filter=False,                   # already split
+        without_timestamps=True,
+        no_speech_threshold=0.6,
+        log_prob_threshold=-1.0,
+        compression_ratio_threshold=2.4,
+    )
+    segments = list(segments)
+    n = sum(max(len(s.tokens), 1) for s in segments) or 1
+    logp = sum(s.avg_logprob * max(len(s.tokens), 1) for s in segments) / n if segments else -9.0
+    return " ".join(s.text.strip() for s in segments).strip(), logp
+
+
 def _transcribe_segmented(model, audio, progress) -> list[dict]:
-    prompts = load_prompts()
+    """Primary language (ro) by default. Another language wins a chunk only when
+    detection is fairly sure AND its transcription is clearly more likely: forcing
+    Russian on Moldovan-accented Romanian produces fluent-looking Cyrillic nonsense."""
+    prompts = load_prompts() if config.WHISPER_PROMPTS else {}
+    primary = config.ASR_LANGUAGES[0]
     chunks = _speech_chunks(audio)
     out: list[dict] = []
-    lang = config.ASR_LANGUAGES[0]
     for i, (start, end) in enumerate(chunks):
         chunk = audio[start:end]
-        lang, prob = _pick_language(model, chunk, lang)
-        segments, _ = model.transcribe(
-            chunk,
-            language=lang,
-            beam_size=5,
-            initial_prompt=prompts.get(lang),
-            condition_on_previous_text=False,   # stops repetition loops
-            vad_filter=False,                   # already split
-            without_timestamps=True,
-            no_speech_threshold=0.6,
-            log_prob_threshold=-1.0,
-            compression_ratio_threshold=2.4,
-        )
-        text = " ".join(s.text.strip() for s in segments).strip()
-        if not _is_hallucination(text):
+        probs = {primary: 1.0}
+        if len(chunk) >= MIN_DETECT_S * SR:
+            _, _, all_probs = model.detect_language(audio=chunk)
+            probs = {l: p for l, p in all_probs if l in config.ASR_LANGUAGES}
+        rival = max((l for l in probs if l != primary), key=lambda l: probs[l], default=None)
+        text, logp = _decode(model, chunk, primary, prompts.get(primary))
+        lang = primary
+        if rival and probs[rival] >= config.SWITCH_MIN_PROB:
+            r_text, r_logp = _decode(model, chunk, rival, prompts.get(rival))
+            if r_logp > logp + config.SWITCH_MARGIN:
+                text, logp, lang = r_text, r_logp, rival
+        if logp >= config.MIN_AVG_LOGPROB and not _is_hallucination(text):
             out.append({"start": round(start / SR, 2), "end": round(end / SR, 2),
-                        "lang": lang, "lang_prob": round(prob, 2),
-                        "text": text, "speaker": None})
+                        "lang": lang, "lang_prob": round(probs.get(lang, 0.0), 2),
+                        "logprob": round(logp, 2), "text": text, "speaker": None})
         progress((i + 1) / len(chunks))
     return out
 

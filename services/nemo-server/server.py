@@ -39,7 +39,8 @@ def _load() -> None:
     if "asr" in LOAD:
         from transformers import AutoModelForRNNT, AutoProcessor
         _processor = AutoProcessor.from_pretrained(ASR_MODEL)
-        _asr = AutoModelForRNNT.from_pretrained(ASR_MODEL, device_map="auto")
+        _asr = AutoModelForRNNT.from_pretrained(ASR_MODEL)
+        _asr = (_asr.cuda() if torch.cuda.is_available() else _asr).eval()
     if "diar" in LOAD:
         from nemo.collections.asr.models import SortformerEncLabelModel
         _diar = SortformerEncLabelModel.from_pretrained(DIAR_MODEL)
