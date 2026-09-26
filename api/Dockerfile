@@ -1,5 +1,7 @@
-# CUDA 12.8 + cuDNN 9: needed by CTranslate2 and by Blackwell GPUs (RTX 50xx).
-FROM nvidia/cuda:12.8.1-cudnn-runtime-ubuntu24.04
+# GPU node: CUDA 12.8 + cuDNN 9, needed by CTranslate2 and by Blackwell GPUs (RTX 50xx).
+# The laptop builds the same code on a slim base (BASE_IMAGE) since it runs no models.
+ARG BASE_IMAGE=nvidia/cuda:12.8.1-cudnn-runtime-ubuntu24.04
+FROM ${BASE_IMAGE}
 
 ENV DEBIAN_FRONTEND=noninteractive PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
 RUN apt-get update \
