@@ -121,17 +121,53 @@ def asr_health():
             "mode": config.ASR_MODE}
 
 
+def _get(url: str) -> httpx.Response | None:
+    try:
+        return httpx.get(url, timeout=3)
+    except httpx.HTTPError:
+        return None
+
+
+def _llm_status() -> dict:
+    node = {"where": config.OLLAMA_URL, "model": config.LLM_MODEL}
+    if config.MOCK_MODELS:
+        return {**node, "status": "mock"}
+    r = _get(f"{config.OLLAMA_URL}/api/tags")
+    if not r or r.status_code != 200:
+        return {**node, "status": "down", "detail": "Ollama unreachable"}
+    names = {m["name"] for m in r.json().get("models", [])}
+    if config.LLM_MODEL not in names and f"{config.LLM_MODEL}:latest" not in names:
+        return {**node, "status": "down", "detail": f"{config.LLM_MODEL} not pulled"}
+    return {**node, "status": "up"}
+
+
+def _asr_status() -> dict:
+    if config.MOCK_MODELS:
+        return {"where": "fixtures", "model": config.WHISPER_MODEL, "status": "mock"}
+    if not config.ASR_URL:
+        return {"where": "local", "model": config.WHISPER_MODEL,
+                "device": config.WHISPER_DEVICE, "status": "up"}
+    r = _get(f"{config.ASR_URL}/api/asr/health")
+    if not r or r.status_code != 200:
+        return {"where": config.ASR_URL, "model": config.WHISPER_MODEL, "status": "down",
+                "detail": "ASR worker unreachable"}
+    info = r.json()
+    return {"where": config.ASR_URL, "model": info.get("model"), "device": info.get("device"),
+            "status": "mock" if info.get("mock") else "up"}
+
+
 @app.get("/api/health")
 def health():
-    checks = {}
-    for name, url in (("ollama", f"{config.OLLAMA_URL}/api/tags"),
-                      ("n8n", config.N8N_WEBHOOK_URL.split("/webhook")[0] + "/healthz")):
-        try:
-            checks[name] = httpx.get(url, timeout=3).status_code == 200
-        except httpx.HTTPError:
-            checks[name] = False
-    return {"ok": all(checks.values()), **checks, "llm": config.LLM_MODEL,
-            "asr": config.WHISPER_MODEL, "asr_mode": config.ASR_MODE}
+    """Which node does what, and is it reachable. Shown in the web page header."""
+    n8n_base = config.N8N_WEBHOOK_URL.split("/webhook")[0]
+    r = _get(f"{n8n_base}/healthz")
+    nodes = {
+        "asr": _asr_status(),
+        "llm": _llm_status(),
+        "n8n": {"where": n8n_base, "status": "up" if r and r.status_code == 200 else "down"},
+    }
+    return {"ok": all(n["status"] != "down" for n in nodes.values()),
+            "mock": config.MOCK_MODELS, "asr_mode": config.ASR_MODE, "nodes": nodes}
 
 
 @app.get("/")
