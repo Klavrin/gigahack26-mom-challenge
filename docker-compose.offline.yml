@@ -2,7 +2,7 @@
 # Docker network with NO route to the internet (internal: true). The only container
 # with an outside interface is the nginx gateway, which has no code - just proxy rules.
 #
-#   docker compose -f docker-compose.yml -f docker-compose.offline.yml up -d
+#   docker compose -f docker-compose.yml -f docker-compose.gpu.yml -f docker-compose.offline.yml up -d
 #   sh scripts/egress-check.sh      # proves every container is cut off
 #
 # Pull/download models first with the normal compose file (they need internet once).
@@ -13,6 +13,13 @@ networks:
 
 services:
   api:
+    networks: [sealed]
+    ports: !reset []
+    environment:
+      OFFLINE: "1"
+      HF_HUB_OFFLINE: "1"
+
+  asr:
     networks: [sealed]
     ports: !reset []
     environment:

@@ -14,13 +14,17 @@ their WER can be compared like for like.
 import gc
 import json
 import threading
-from typing import Callable, Optional, Union
+from pathlib import Path
+from typing import TYPE_CHECKING, Callable, Optional, Union
 
 import numpy as np
-from faster_whisper import WhisperModel, decode_audio
-from faster_whisper.vad import VadOptions, get_speech_timestamps
 
 from . import config, nemo_client
+
+# faster_whisper is imported lazily: a laptop that sends audio to a remote ASR
+# worker (ASR_URL) or runs MOCK_MODELS=1 never loads it.
+if TYPE_CHECKING:
+    from faster_whisper import WhisperModel
 
 SR = 16000
 MIN_DETECT_S = 1.2     # shorter chunks inherit the previous language
@@ -34,13 +38,14 @@ HALLUCINATIONS = (
     "thanks for watching", "thank you for watching", "subscribe",
 )
 
-_model: Optional[WhisperModel] = None
+_model: Optional["WhisperModel"] = None
 _lock = threading.Lock()
 
 
-def _load() -> WhisperModel:
+def _load() -> "WhisperModel":
     global _model
     if _model is None:
+        from faster_whisper import WhisperModel
         _model = WhisperModel(
             config.WHISPER_MODEL,
             device=config.WHISPER_DEVICE,
@@ -69,6 +74,8 @@ def _is_hallucination(text: str) -> bool:
 
 
 def _speech_chunks(audio: np.ndarray) -> list[tuple[int, int]]:
+    from faster_whisper.vad import VadOptions, get_speech_timestamps
+
     opts = VadOptions(
         threshold=0.5,
         min_speech_duration_ms=250,
@@ -91,7 +98,7 @@ def _speech_chunks(audio: np.ndarray) -> list[tuple[int, int]]:
     return merged
 
 
-def _pick_language(model: WhisperModel, chunk: np.ndarray, previous: str) -> tuple[str, float]:
+def _pick_language(model: "WhisperModel", chunk: np.ndarray, previous: str) -> tuple[str, float]:
     if len(chunk) < MIN_DETECT_S * SR:
         return previous, 0.0
     _, _, all_probs = model.detect_language(audio=chunk)
@@ -104,6 +111,7 @@ def _pick_language(model: WhisperModel, chunk: np.ndarray, previous: str) -> tup
 
 
 def load_audio(path: str) -> np.ndarray:
+    from faster_whisper import decode_audio
     return decode_audio(path, sampling_rate=SR)
 
 
@@ -187,6 +195,21 @@ def _transcribe_segmented(model, audio, progress) -> list[dict]:
                         "text": text, "speaker": None})
         progress((i + 1) / len(chunks))
     return out
+
+
+def transcribe_remote(path: str, mode: Optional[str] = None) -> list[dict]:
+    """Send the audio to the ASR worker at ASR_URL; returns the same list as transcribe()."""
+    import httpx
+
+    with open(path, "rb") as f:
+        resp = httpx.post(
+            f"{config.ASR_URL}/api/asr",
+            files={"file": (Path(path).name, f)},
+            data={"mode": mode or config.ASR_MODE},
+            timeout=3600,
+        )
+    resp.raise_for_status()
+    return resp.json()
 
 
 def fmt_ts(seconds: float) -> str:

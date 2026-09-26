@@ -169,6 +169,7 @@ def chat_json(system: str, user: str, schema: dict) -> dict:
             "messages": [{"role": "system", "content": system},
                          {"role": "user", "content": user}],
             "format": schema,
+            "think": False,   # Qwen3: skip the reasoning trace, answer with JSON only
             "stream": False,
             "keep_alive": "10m",
             "options": {"temperature": 0, "num_ctx": config.LLM_NUM_CTX},
@@ -176,7 +177,8 @@ def chat_json(system: str, user: str, schema: dict) -> dict:
         timeout=900,
     )
     resp.raise_for_status()
-    return json.loads(resp.json()["message"]["content"])
+    content = re.sub(r"<think>.*?</think>", "", resp.json()["message"]["content"], flags=re.S)
+    return json.loads(content)
 
 
 def _chunks(lines: list[str], max_chars: int) -> list[list[str]]:
