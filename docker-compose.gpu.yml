@@ -24,7 +24,7 @@ services:
       MOCK_MODELS: "0"
       WHISPER_MODEL: ${WHISPER_MODEL:-large-v3}
       WHISPER_DEVICE: cuda
-      WHISPER_COMPUTE_TYPE: ${WHISPER_COMPUTE_TYPE:-int8_float16}
+      WHISPER_COMPUTE_TYPE: ${WHISPER_COMPUTE_TYPE:-float16}
       ASR_MODE: ${ASR_MODE:-longform}
       ASR_BACKEND: ${ASR_BACKEND:-whisper}
       NEMOTRON_URL: ${NEMOTRON_URL:-http://nemo:8001}

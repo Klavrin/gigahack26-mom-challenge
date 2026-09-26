@@ -81,7 +81,7 @@ def _strip_foreign_scripts(text: str) -> str:
     sometimes emits Korean or Chinese ("monitorăm viața în Bak 수가")."""
     import unicodedata
 
-    kept = "".join(ch for ch in text
+    kept = "".join(ch for ch in text.replace("\ufffd", "")
                    if not ch.isalpha() or unicodedata.name(ch, "").startswith(KEEP_SCRIPTS))
     kept = re.sub(r"\s{2,}", " ", kept)
     return re.sub(r"\s+([.,!?;:])", r"\1", kept).strip()
@@ -215,6 +215,8 @@ def _transcribe_longform(model, audio, progress) -> list[dict]:
             chunk = run[int(s.start * SR):int(s.end * SR)]
             text, seg_lang, logp = _rescue(model, chunk, s.text.strip(), lang, s.avg_logprob)
             text = _strip_foreign_scripts(text)
+            if out and text and text.lower() == out[-1]["text"].lower():
+                continue   # the same phrase again: a decoding loop, not speech
             if not _is_hallucination(text):
                 out.append({"start": round(offset + s.start, 2), "end": round(offset + s.end, 2),
                             "lang": seg_lang, "logprob": round(logp, 2), "text": text,

@@ -14,11 +14,13 @@ def _flag(name: str, default: str = "0") -> bool:
 # noisy audio), same Russian coverage in Parliament; ~7.8 min ASR per 60 min on an 8 GB laptop GPU.
 WHISPER_MODEL = _env("WHISPER_MODEL", "large-v3")
 WHISPER_DEVICE = _env("WHISPER_DEVICE", "cuda")
-WHISPER_COMPUTE_TYPE = _env("WHISPER_COMPUTE_TYPE", "int8_float16")
+# float16 over int8_float16: lecture WER 49.2-49.4 % vs 52.8-54.6 %, stable between runs,
+# slightly faster; large-v3 in fp16 is ~3 GB of VRAM.
+WHISPER_COMPUTE_TYPE = _env("WHISPER_COMPUTE_TYPE", "float16")
 WHISPER_DIR = Path(_env("WHISPER_DIR", "/models/whisper"))
 # Decoding temperatures, tried in order when a window looks wrong (repetitive or
-# low-confidence). Whisper's default fallback goes up to 1.0, which samples randomly
-# and makes results differ from run to run.
+# low-confidence). Keep the full fallback: with T=0 only (or up to 0.4) Whisper gets
+# stuck repeating a phrase ("S-a făcut ieco." x15) and lecture WER rose to 59-72 %.
 WHISPER_TEMPERATURE = tuple(float(t) for t in _env("WHISPER_TEMPERATURE", "0.0,0.2,0.4,0.6,0.8,1.0").split(","))
 # "longform" = 30 s windows with context, primary language forced, Russian re-checked
 #              per segment (default: best WER on a hand-corrected Moldovan lecture)
