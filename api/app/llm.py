@@ -132,6 +132,13 @@ def _grounded(name: str, transcript_norm: str) -> bool:
     return any(w in transcript_norm for w in words)
 
 
+def _spoken(phrase: str, transcript_norm: str) -> bool:
+    """A quoted expression counts only if most of its words (3+ letters) were said. The
+    model once copied the prompt's own example ("к понедельнику") into a Romanian meeting."""
+    words = re.findall(r"\w{3,}", deadlines.normalize(phrase))
+    return bool(words) and sum(w in transcript_norm for w in words) / len(words) >= 0.6
+
+
 def _clean(mom: dict, meeting_date: dt.date, transcript: str) -> dict:
     """Deterministic post-checks on the model output."""
     said = deadlines.normalize(transcript)
@@ -149,8 +156,13 @@ def _clean(mom: dict, meeting_date: dt.date, transcript: str) -> dict:
         owner = (a.get("owner") or "").strip()
         owner = names.get(owner, owner)
         a["owner"] = owner if not owner or label.match(owner) or _grounded(owner, said) else ""
+        # No deadline unless one was actually said: the reviewer can still add one.
+        spoken = (a.get("deadline_text") or "").strip()
+        if not spoken or not _spoken(spoken, said):
+            a["deadline_text"], a["deadline"] = "", ""
+            continue
         # the spoken expression wins over the model's own date arithmetic
-        resolved = deadlines.resolve(a.get("deadline_text", ""), meeting_date)
+        resolved = deadlines.resolve(spoken, meeting_date)
         if resolved:
             a["deadline"] = resolved
         else:
