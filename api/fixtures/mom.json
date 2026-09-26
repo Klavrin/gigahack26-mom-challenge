@@ -1,0 +1,27 @@
+{
+ "title": "Consiliul medical: tomograf, antibiotice, reinternări",
+ "summary": "Consiliul a discutat defecțiunea tomografului computerizat, protocolul de antibiotice pentru pneumonia comunitară și rata de reinternare la insuficiența cardiacă. Până la reparația CT, pacienții cu suspiciune de AVC au prioritate la RMN. S-a decis actualizarea protocolului de antibiotice cu amoxicilină/acid clavulanic ca primă linie. Pentru reducerea reinternărilor, pacienții cu insuficiență cardiacă vor fi externați cu programare la cardiolog în cel mult 14 zile.",
+ "participants": ["Dr. Elena Ciobanu", "Dr. Serghei Morozov", "Dr. Ion Rotaru", "Natalia Popescu"],
+ "topics": [
+  {"topic": "Tomograful computerizat", "discussion": "CT-ul nu funcționează de luni; inginerul de service vine miercuri, piesa este comandată. Pacienții urgenți cu suspiciune de AVC sunt trimiși la RMN, unde coada este mare."},
+  {"topic": "Protocolul de antibiotice", "discussion": "Consum mare de ceftriaxonă și rezistență în creștere. Propunere: amoxicilină cu acid clavulanic ca primă linie la pacienții fără factori de risc, ceftriaxona rezervată cazurilor severe, cu criteriu clar de escaladare."},
+  {"topic": "Stocul de heparină", "discussion": "În ATI se termină heparina; stocul trebuie verificat cu farmacia."},
+  {"topic": "Rata de reinternare (KPI)", "discussion": "Rata de reinternare la 30 de zile pentru insuficiența cardiacă este 8,4%, ținta fiind sub 7%. Cauza probabilă: externarea fără programare la cardiolog și fără plan de tratament."}
+ ],
+ "decisions": [
+  {"decision": "Până la reparația tomografului, pacienții cu suspiciune de AVC au prioritate absolută la RMN; investigațiile planificate se amână.", "evidence": "pacienții cu suspiciune de AVC au prioritate absolută la RMN"},
+  {"decision": "Protocolul de antibiotice pentru pneumonia comunitară se actualizează: amoxicilină cu acid clavulanic ca primă linie, ceftriaxonă pentru cazurile severe.", "evidence": "Atunci am decis: actualizăm protocolul."},
+  {"decision": "De la începutul lunii viitoare, pacienții cu insuficiență cardiacă sunt externați cu programare la cardiolog în cel mult 14 zile.", "evidence": "fiecare pacient cu insuficiență cardiacă pleacă acasă cu programare la cardiolog"}
+ ],
+ "action_items": [
+  {"task": "Informarea UPU și a secției de neurologie despre prioritizarea RMN pentru AVC", "owner": "Natalia Popescu", "deadline": "2026-09-24", "deadline_text": "încă azi", "evidence": "Doamna Popescu, vă rog să informați UPU și secția de neurologie încă azi."},
+  {"task": "Draftul protocolului actualizat de antibiotice pentru pneumonia comunitară", "owner": "Dr. Ion Rotaru", "deadline": "2026-09-25", "deadline_text": "până vineri", "evidence": "Doctor Rotaru, pregătiți draftul de protocol până vineri"},
+  {"task": "Raport privind ocuparea paturilor în ATI și reinternările", "owner": "Natalia Popescu", "deadline": "2026-09-28", "deadline_text": "к понедельнику", "evidence": "Давайте Наталья подготовит отчёт по загрузке коек в реанимации"},
+  {"task": "Verificarea stocului de heparină cu farmacia", "owner": "", "deadline": "", "deadline_text": "", "evidence": "cineva trebuie să verifice stocul de heparină cu farmacia"},
+  {"task": "Verificarea capacității ambulatoriului de cardiologie cu echipa de programări", "owner": "Dr. Elena Ciobanu", "deadline": "2026-09-30", "deadline_text": "by the end of the month", "evidence": "can you check the outpatient capacity with the scheduling team by the end of the month?"}
+ ],
+ "open_questions": [
+  "Are ambulatoriul suficienți cardiologi pentru programarea tuturor pacienților cu insuficiență cardiacă în 14 zile?",
+  "Cine verifică stocul de heparină?"
+ ]
+}

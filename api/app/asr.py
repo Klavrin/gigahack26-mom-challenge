@@ -10,6 +10,7 @@ garbled. "segment" mode instead:
 import gc
 import json
 import threading
+from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Optional
 
 import numpy as np
@@ -161,6 +162,21 @@ def _transcribe_segmented(model, audio, progress) -> list[dict]:
                         "text": text, "speaker": None})
         progress((i + 1) / len(chunks))
     return out
+
+
+def transcribe_remote(path: str, mode: Optional[str] = None) -> list[dict]:
+    """Send the audio to the ASR worker at ASR_URL; returns the same list as transcribe()."""
+    import httpx
+
+    with open(path, "rb") as f:
+        resp = httpx.post(
+            f"{config.ASR_URL}/api/asr",
+            files={"file": (Path(path).name, f)},
+            data={"mode": mode or config.ASR_MODE},
+            timeout=3600,
+        )
+    resp.raise_for_status()
+    return resp.json()
 
 
 def fmt_ts(seconds: float) -> str:

@@ -10,7 +10,7 @@ from pathlib import Path
 
 import httpx
 
-from . import asr, config, llm, render
+from . import asr, config, llm, mock, render
 
 STAGES = ["queued", "transcribing", "correcting", "extracting", "sending", "done"]
 
@@ -61,8 +61,7 @@ def run(job: dict) -> None:
         return time.time()
 
     t = stage("transcribing")
-    segments = asr.transcribe(job["audio"], progress=lambda f: job.update(progress=f))
-    asr.unload()   # give the GPU to the LLM
+    segments = _transcribe(job)
     job["timings"]["asr_s"] = round(time.time() - t, 1)
     if not config.KEEP_AUDIO:
         Path(job["audio"]).unlink(missing_ok=True)
@@ -70,14 +69,14 @@ def run(job: dict) -> None:
 
     if config.CORRECT_TRANSCRIPT:
         t = stage("correcting")
-        segments = llm.correct_transcript(segments)
+        segments = (mock if config.MOCK_MODELS else llm).correct_transcript(segments)
         job["timings"]["correct_s"] = round(time.time() - t, 1)
     transcript = asr.to_text(segments)
     _write(jid, "transcript.txt", transcript)
     _write(jid, "segments.json", json.dumps(segments, ensure_ascii=False, indent=1))
 
     t = stage("extracting")
-    mom = llm.extract_mom(transcript, job["meeting_type"], date)
+    mom = (mock if config.MOCK_MODELS else llm).extract_mom(transcript, job["meeting_type"], date)
     job["timings"]["llm_s"] = round(time.time() - t, 1)
     html = render.render_html(mom, job["meeting_type"], date)
     _write(jid, "mom.json", json.dumps(mom, ensure_ascii=False, indent=1))
@@ -97,6 +96,17 @@ def run(job: dict) -> None:
     job["timings"]["total_s"] = round(time.time() - t0, 1)
     _write(jid, "timings.json", json.dumps(job["timings"], indent=1))
     job["stage"], job["progress"] = "done", 1.0
+
+
+def _transcribe(job: dict) -> list[dict]:
+    progress = lambda f: job.update(progress=f)
+    if config.MOCK_MODELS:
+        return mock.transcribe(progress)
+    if config.ASR_URL:
+        return asr.transcribe_remote(job["audio"])
+    segments = asr.transcribe(job["audio"], progress=progress)
+    asr.unload()   # give the GPU to the LLM
+    return segments
 
 
 def _worker() -> None:

@@ -1,5 +1,6 @@
 import datetime as dt
 import shutil
+import tempfile
 from pathlib import Path
 
 import httpx
@@ -7,7 +8,7 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import config, pipeline
+from . import asr, config, mock, pipeline
 
 app = FastAPI(title="MoM - on-premise meeting minutes")
 STATIC = Path(__file__).resolve().parent.parent / "static"
@@ -61,6 +62,30 @@ def job_mom(job_id: str):
 @app.get("/api/jobs/{job_id}/transcript.txt", response_class=PlainTextResponse)
 def job_transcript(job_id: str):
     return _job_file(job_id, "transcript.txt").read_text(encoding="utf-8")
+
+
+@app.post("/api/asr")
+def asr_worker(file: UploadFile = File(...), mode: str = Form("")):
+    """ASR worker: the GPU node serves this, laptops reach it through ASR_URL."""
+    if mode and mode not in ("segment", "plain"):
+        raise HTTPException(400, "mode must be segment or plain")
+    if config.MOCK_MODELS:
+        return mock.transcribe(lambda f: None)
+    with tempfile.TemporaryDirectory(dir=config.DATA_DIR) as tmp:
+        path = Path(tmp) / ("audio" + (Path(file.filename or "").suffix or ".webm"))
+        with path.open("wb") as f:
+            shutil.copyfileobj(file.file, f)
+        try:
+            return asr.transcribe(str(path), mode=mode or None)
+        finally:
+            asr.unload()   # the LLM may share this GPU
+
+
+@app.get("/api/asr/health")
+def asr_health():
+    return {"ok": True, "mock": config.MOCK_MODELS, "model": config.WHISPER_MODEL,
+            "device": config.WHISPER_DEVICE, "compute_type": config.WHISPER_COMPUTE_TYPE,
+            "mode": config.ASR_MODE}
 
 
 @app.get("/api/health")
