@@ -161,6 +161,16 @@ def _clean(mom: dict, meeting_date: dt.date, transcript: str) -> dict:
     return mom
 
 
+def unload() -> None:
+    """Free the LLM's VRAM now instead of after keep_alive: on an 8 GB GPU the next job's
+    Whisper would not fit next to it."""
+    try:
+        httpx.post(f"{config.OLLAMA_URL}/api/generate",
+                   json={"model": config.LLM_MODEL, "keep_alive": 0}, timeout=30)
+    except httpx.HTTPError:
+        pass
+
+
 def chat_json(system: str, user: str, schema: dict) -> dict:
     resp = httpx.post(
         f"{config.OLLAMA_URL}/api/chat",

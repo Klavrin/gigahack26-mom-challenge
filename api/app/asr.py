@@ -73,6 +73,20 @@ def load_prompts() -> dict:
     return json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
 
 
+KEEP_SCRIPTS = ("LATIN", "CYRILLIC", "GREEK")   # Greek for terms like "β-blocant"
+
+
+def _strip_foreign_scripts(text: str) -> str:
+    """Drop letters of scripts nobody speaks in these meetings: on unclear audio Whisper
+    sometimes emits Korean or Chinese ("monitorăm viața în Bak 수가")."""
+    import unicodedata
+
+    kept = "".join(ch for ch in text
+                   if not ch.isalpha() or unicodedata.name(ch, "").startswith(KEEP_SCRIPTS))
+    kept = re.sub(r"\s{2,}", " ", kept)
+    return re.sub(r"\s+([.,!?;:])", r"\1", kept).strip()
+
+
 def _is_hallucination(text: str) -> bool:
     t = text.lower().strip(" .!?…,")
     if not t or t in EXACT_HALLUCINATIONS:
@@ -111,8 +125,30 @@ def _speech_chunks(audio: np.ndarray) -> list[tuple[int, int]]:
 
 
 def load_audio(path: str) -> np.ndarray:
-    from faster_whisper import decode_audio
-    return decode_audio(path, sampling_rate=SR)
+    """16 kHz mono float32. ffmpeg decodes straight to 16-bit PCM: ~2 bytes per sample in
+    flight instead of PyAV's per-frame buffers, which ran out of memory on a 5 h 44 min
+    session. Falls back to faster-whisper's decoder if ffmpeg is missing."""
+    import shutil
+    import subprocess
+
+    if not shutil.which("ffmpeg"):
+        from faster_whisper import decode_audio
+        return decode_audio(path, sampling_rate=SR)
+    pcm = subprocess.run(["ffmpeg", "-nostdin", "-loglevel", "error", "-i", path, "-ac", "1",
+                          "-ar", str(SR), "-f", "s16le", "-"], capture_output=True, check=True).stdout
+    return np.frombuffer(pcm, dtype=np.int16).astype(np.float32) / 32768.0
+
+
+def duration_s(path: str) -> float:
+    """Length of an audio/video file without decoding it (0.0 if unknown)."""
+    import subprocess
+
+    try:
+        out = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                              "-of", "default=nw=1:nk=1", path], capture_output=True, text=True, check=True)
+        return float(out.stdout.strip())
+    except (OSError, ValueError, subprocess.CalledProcessError):
+        return 0.0
 
 
 def transcribe(
@@ -137,7 +173,8 @@ def transcribe(
         return _transcribe_longform(model, audio, progress)
 
 
-def _language_runs(model, audio) -> list[tuple[int, int, str]]:
+def _language_runs(model, audio, progress: Callable[[float], None] = lambda f: None
+                   ) -> list[tuple[int, int, str]]:
     """VAD regions (<= 30 s) -> language per region -> consecutive same-language regions
     merged into runs. The language must be chosen BEFORE decoding: Whisper forced to
     Romanian on a Russian speech writes "Să vă mulțumim pentru vizionare" instead."""
@@ -148,13 +185,14 @@ def _language_runs(model, audio) -> list[tuple[int, int, str]]:
     regions = [(c["start"], c["end"]) for c in get_speech_timestamps(audio, opts, sampling_rate=SR)]
     runs: list[list] = []
     lang = primary
-    for start, end in regions:
+    for i, (start, end) in enumerate(regions):
+        progress(0.1 * i / max(len(regions), 1))   # the pre-pass is minutes on long sessions
         if end - start >= 2 * SR:                  # too short to judge: keep the running language
             _, _, all_probs = model.detect_language(audio=audio[start:end])
             probs = {l: p for l, p in all_probs if l in config.ASR_LANGUAGES and l != primary}
             rival = max(probs, key=probs.get, default=None)
             lang = rival if rival and probs[rival] >= config.LONGFORM_SWITCH_PROB else primary
-        if runs and runs[-1][2] == lang:
+        if runs and runs[-1][2] == lang and end - runs[-1][0] <= config.LONGFORM_MAX_RUN_S * SR:
             runs[-1][1] = end
         else:
             runs.append([start, end, lang])
@@ -167,14 +205,16 @@ def _transcribe_longform(model, audio, progress) -> list[dict]:
     by ~30 WER points; on the Parliament session it keeps whole Russian speeches."""
     total = len(audio) / SR
     out: list[dict] = []
-    for start, end, lang in _language_runs(model, audio):
+    for start, end, lang in _language_runs(model, audio, progress):
         offset = start / SR
         run = audio[start:end]
-        segments, _ = model.transcribe(run, language=lang, beam_size=5, vad_filter=True)
+        segments, _ = model.transcribe(run, language=lang, beam_size=5, vad_filter=True,
+                                       temperature=list(config.WHISPER_TEMPERATURE))
         for s in segments:
-            progress(min((offset + s.end) / total, 1.0))
+            progress(0.1 + 0.9 * min((offset + s.end) / total, 1.0))
             chunk = run[int(s.start * SR):int(s.end * SR)]
             text, seg_lang, logp = _rescue(model, chunk, s.text.strip(), lang, s.avg_logprob)
+            text = _strip_foreign_scripts(text)
             if not _is_hallucination(text):
                 out.append({"start": round(offset + s.start, 2), "end": round(offset + s.end, 2),
                             "lang": seg_lang, "logprob": round(logp, 2), "text": text,
