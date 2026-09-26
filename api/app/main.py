@@ -12,7 +12,7 @@ from pydantic import BaseModel
 from . import asr, config, mock, pipeline
 
 app = FastAPI(title="MoM - on-premise meeting minutes")
-STATIC = Path(__file__).resolve().parent.parent / "static"
+STATIC = config.STATIC_DIR
 
 
 @app.on_event("startup")
@@ -40,6 +40,11 @@ def create_job(
     return pipeline.submit(audio_path, meeting_type, date, job_id)
 
 
+@app.get("/api/jobs")
+def recent_jobs():
+    return pipeline.recent()
+
+
 @app.get("/api/jobs/{job_id}")
 def job_status(job_id: str):
     job = pipeline.get(job_id)
@@ -62,6 +67,7 @@ class ActionItemEdit(BaseModel):
 
 class SendRequest(BaseModel):
     action_items: list[ActionItemEdit] = []
+    meeting_type: str | None = None   # distribution list, chosen at review time
 
 
 @app.post("/api/jobs/{job_id}/send")
@@ -70,7 +76,7 @@ def job_send(job_id: str, body: SendRequest):
     if not job:
         raise HTTPException(404)
     try:
-        return pipeline.send(job, [a.model_dump() for a in body.action_items])
+        return pipeline.send(job, [a.model_dump() for a in body.action_items], body.meeting_type)
     except ValueError as e:
         raise HTTPException(400, str(e))
     except httpx.HTTPError as e:
@@ -175,4 +181,4 @@ def index():
     return FileResponse(STATIC / "index.html")
 
 
-app.mount("/static", StaticFiles(directory=STATIC), name="static")
+app.mount("/static", StaticFiles(directory=STATIC, check_dir=False), name="static")

@@ -43,3 +43,6 @@ MOCK_MODELS = _flag("MOCK_MODELS")
 FIXTURES_DIR = Path(_env("FIXTURES_DIR", str(Path(__file__).resolve().parent.parent / "fixtures")))
 
 MEETING_TYPES = ("medical", "executive", "administrative")
+
+# Built React app (api/web -> npm run build). The Docker image copies it here.
+STATIC_DIR = Path(_env("STATIC_DIR", str(Path(__file__).resolve().parent.parent / "static")))

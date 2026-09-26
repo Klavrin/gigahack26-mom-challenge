@@ -64,6 +64,7 @@ def run(job: dict) -> None:
 
     t = stage("transcribing")
     segments = _transcribe(job)
+    job["audio_s"] = round(segments[-1]["end"], 1) if segments else 0.0
     job["timings"]["asr_s"] = round(time.time() - t, 1)
     if not config.KEEP_AUDIO:
         Path(job["audio"]).unlink(missing_ok=True)
@@ -80,6 +81,7 @@ def run(job: dict) -> None:
     t = stage("extracting")
     mom = (mock if config.MOCK_MODELS else llm).extract_mom(transcript, job["meeting_type"], date)
     job["timings"]["llm_s"] = round(time.time() - t, 1)
+    job["title"] = mom.get("title") or None
     _write(jid, "mom_draft.json", json.dumps(mom, ensure_ascii=False, indent=1))
     _write(jid, "mom.json", json.dumps(mom, ensure_ascii=False, indent=1))
     _write(jid, "mom.html", render.render_html(mom, job["meeting_type"], date))
@@ -90,13 +92,22 @@ def run(job: dict) -> None:
     job["stage"], job["progress"] = "review", 1.0
 
 
-def send(job: dict, action_items: list[dict]) -> dict:
-    """Apply the reviewer's owner/deadline edits, re-render, deliver through n8n."""
+def recent(limit: int = 10) -> list[dict]:
+    jobs = sorted(_jobs.values(), key=lambda j: j["created"], reverse=True)[:limit]
+    keys = ("id", "stage", "meeting_type", "meeting_date", "title", "created")
+    return [{k: j.get(k) for k in keys} for j in jobs]
+
+
+def send(job: dict, action_items: list[dict], meeting_type: str | None = None) -> dict:
+    """Apply the reviewer's edits (owners, deadlines, distribution list), re-render,
+    deliver through n8n."""
     jid = job["id"]
     date = dt.date.fromisoformat(job["meeting_date"])
     with _send_lock:
         if job["stage"] != "review":
             raise ValueError(f"job is {job['stage']}, not waiting for review")
+        if meeting_type and meeting_type not in config.MEETING_TYPES:
+            raise ValueError(f"meeting_type must be one of {config.MEETING_TYPES}")
         mom = json.loads((job_dir(jid) / "mom.json").read_text(encoding="utf-8"))
         items = mom.get("action_items", [])
         if len(action_items) != len(items):
@@ -106,6 +117,8 @@ def send(job: dict, action_items: list[dict]) -> dict:
             if deadline:
                 dt.date.fromisoformat(deadline)   # ValueError -> 400
             item["owner"], item["deadline"] = edit["owner"].strip(), deadline
+        if meeting_type:
+            job["meeting_type"] = meeting_type   # the reviewer picks who receives it
         job["stage"], job["error"] = "sending", None
 
     html = render.render_html(mom, job["meeting_type"], date)
