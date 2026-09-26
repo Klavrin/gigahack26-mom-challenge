@@ -82,6 +82,8 @@ def run(job: dict) -> None:
 
     t = stage("extracting")
     mom = (mock if config.MOCK_MODELS else llm).extract_mom(transcript, job["meeting_type"], date)
+    if not config.MOCK_MODELS:
+        llm.unload()   # the next job's Whisper needs this VRAM (8 GB GPUs)
     job["timings"]["llm_s"] = round(time.time() - t, 1)
     job["title"] = mom.get("title") or None
     _write(jid, "mom_draft.json", json.dumps(mom, ensure_ascii=False, indent=1))
@@ -148,11 +150,15 @@ def _transcribe(job: dict) -> tuple[list[dict], list[dict]]:
     progress = lambda f: job.update(progress=f)
     if config.MOCK_MODELS:
         return mock.transcribe(progress), []
-    need_audio = config.DIARIZATION_URL or not config.ASR_URL
+    diarize = bool(config.DIARIZATION_URL)
+    if diarize and asr.duration_s(job["audio"]) > config.DIARIZATION_MAX_S:
+        diarize = False
+        job["warning"] = "recording longer than DIARIZATION_MAX_S: no speaker labels"
+    need_audio = diarize or not config.ASR_URL
     audio = asr.load_audio(job["audio"]) if need_audio else None
     turns: list[dict] = []
     with ThreadPoolExecutor(1) as pool:
-        diar = pool.submit(nemo_client.diarize, audio) if config.DIARIZATION_URL else None
+        diar = pool.submit(nemo_client.diarize, audio) if diarize else None
         if config.ASR_URL:
             segments = asr.transcribe_remote(job["audio"], progress=progress)
         else:
