@@ -17,3 +17,7 @@ __pycache__/
 .venv/
 node_modules/
 api/web/dist/
+
+# Archives of data/ made to hand over to the GPU node
+*.tgz
+*.zip

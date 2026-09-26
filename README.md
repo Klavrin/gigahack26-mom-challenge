@@ -193,6 +193,29 @@ The 11-min sample is split: **0–6 min = dev** (tune on it), **6–11 min = hel
 | n8n + email | – |
 | **Upload → email** | – |
 
+### Fine-tuning data: Moldovan Parliament stenograms
+
+Plenary sessions of the Parliament of Moldova have a full video on YouTube and an
+official verbatim **stenogram** (speaker-labelled, Russian replies kept in Russian),
+published 2-3 months later on the sitting's page at parlament.md (CC BY-SA 4.0).
+`eval/stenogram_align.py` turns such a pair into a Whisper training set: Whisper only
+supplies word times, the text is the stenographers', and segments the ASR can't confirm
+are dropped.
+
+```bash
+# laptop: audio + stenogram text (example: sitting of 3 July 2025)
+yt-dlp -f 251 -x --audio-format opus -o "data/parlament/2025-07-03/audio.%(ext)s" "https://www.youtube.com/watch?v=jD0Q6k0IdS4"
+pdftotext -enc UTF-8 data/parlament/2025-07-03/stenograma.pdf data/parlament/2025-07-03/stenograma.txt
+python eval/stenogram_align.py parse data/parlament/2025-07-03/stenograma.txt data/parlament/2025-07-03/turns.jsonl
+
+# GPU node (copy audio.opus + turns.jsonl into its ./data/parlament/2025-07-03/ first)
+docker compose -f docker-compose.gpu.yml exec asr python eval/stenogram_align.py align   /data/parlament/2025-07-03/audio.opus /data/parlament/2025-07-03/turns.jsonl /data/parlament/2025-07-03/out
+```
+
+`out/aligned.tsv` is the stenogram with start/end seconds per sentence group;
+`out/dataset/` (clips <= 30 s + `metadata.csv`, every 10th speaker turn held out as
+validation) loads with `datasets.load_dataset("audiofolder", data_dir=...)`.
+
 ## Layout
 
 ```
@@ -209,6 +232,7 @@ api/web/              React app (Vite): drop or record → progress → review �
 n8n/                  routing workflow + SMTP credential (auto-imported)
 glossary/             Whisper prompts per language, medical term list
 eval/wer.py           WER/CER + most frequent substitutions
+eval/stenogram_align.py  Parliament stenogram + audio -> timed transcript + Whisper dataset
 scripts/              pull-models.sh (GPU node), smoke-gpu-node.sh (laptop → GPU node)
 ```
 
