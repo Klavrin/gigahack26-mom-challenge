@@ -17,7 +17,7 @@ services:
     environment:
       MOCK_MODELS: ${MOCK_MODELS:-1}
       ASR_URL: ${ASR_URL:-}
-      ASR_MODE: ${ASR_MODE:-segment}
+      ASR_MODE: ${ASR_MODE:-longform}
       ASR_BACKEND: ${ASR_BACKEND:-whisper}
       NEMOTRON_URL: ${NEMOTRON_URL:-http://nemo:8001}
       DIARIZATION_URL: ${DIARIZATION_URL:-}
@@ -26,7 +26,7 @@ services:
       LLM_NUM_CTX: ${LLM_NUM_CTX:-16384}
       CORRECT_TRANSCRIPT: ${CORRECT_TRANSCRIPT:-0}
       KEEP_AUDIO: ${KEEP_AUDIO:-0}
-      WHISPER_MODEL: ${WHISPER_MODEL:-large-v3-turbo}
+      WHISPER_MODEL: ${WHISPER_MODEL:-large-v3}
       # Only used if ASR_URL is empty and mock is off (slow CPU fallback).
       WHISPER_DEVICE: cpu
       WHISPER_COMPUTE_TYPE: int8

@@ -134,6 +134,38 @@ resolved date). Nothing is emailed until someone clicks *Aprobați și trimiteț
 
 ## Evaluation
 
+### ASR mode (4-min Moldovan biology lecture, exact hand transcript `data/refs/output.txt`)
+
+| ASR mode | WER | CER |
+|---|---|---|
+| `segment`: short VAD chunks, no context (old default) | 83.6% | 67.1% |
+| `plain`: stock Whisper, auto language | 63.4% | 37.8% |
+| **`longform`**: language runs, 30 s windows + context (default) | **53–57%** | **~29%** |
+| fixed 5 s / 10 s / 20 s chunks, no context | 85.2% / 82.0% / 77.7% | |
+
+### Model (longform mode)
+
+| Whisper model | Lecture WER raw / dialect-normalised / + no diacritics | Speed on Parliament audio (8 GB laptop GPU) |
+|---|---|---|
+| large-v3-turbo (809 M params) | 57-71% (unstable between runs) | 3.3 min per 60 min |
+| **large-v3 (1.55 B, default)** | **53.2-53.9% / 52.3-53.0% / 49.7-50.5%** | **7.8 min per 60 min** |
+
+`eval/wer.py` prints three scores: *dialect* maps spoken Moldovan forms ("așa-i", "omogene-s",
+"îs", "pân'") to standard spelling on both sides; *no diacritics* folds ă â î ș ț. Together they
+explain only ~4 points: the remaining errors are genuinely misheard words (phone audio in a
+lecture hall). On clean Parliament audio both models keep whole Russian speeches; large-v3 also
+caught sentences turbo dropped.
+
+Longer context wins: Whisper is trained on 30 s windows. The language is chosen per
+speech region *before* decoding (Russian only at >= 95% detection confidence). Forced
+Romanian on a Russian speech makes Whisper write "Să vă mulțumim pentru vizionare"
+instead, so choosing the language first recovers whole Russian speeches in the
+Parliament session. An 80% threshold let noisy Romanian through as Russian (66.5% WER).
+Re-decoding low-confidence segments in other languages (`LONGFORM_RESCUE=1`) cost +10 WER
+on the lecture, so it is off by default. Runs vary by a few points (Whisper's
+temperature fallback). Note: the lecture is also fine-tuning training data.
+
+
 ```bash
 # on the GPU node
 docker compose -f docker-compose.gpu.yml exec asr python -m app.cli transcribe /data/dev.wav --mode plain   --out /data/out/plain.txt

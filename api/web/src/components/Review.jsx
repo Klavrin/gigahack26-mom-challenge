@@ -14,6 +14,7 @@ export default function Review({ job, onSent, lang }) {
   const [sending, setSending] = useState(job.stage === "sending");
   const [error, setError] = useState(null);
   const [transcriptAt, setTranscriptAt] = useState(null);   // null = closed, -1 = open at top
+  const [approver, setApprover] = useState(loadApprover);    // who signs off; remembered per browser
 
   useEffect(() => {
     Promise.all([api.mom(job.id), api.segments(job.id)]).then(([m, s]) => {
@@ -38,10 +39,16 @@ export default function Review({ job, onSent, lang }) {
   }
 
   async function send() {
+    const name = approver.trim();
+    if (!name) {
+      document.getElementById("approver")?.focus();
+      return;
+    }
     setSending(true);
     setError(null);
+    saveApprover(name);
     try {
-      onSent(await api.send(job.id, { meeting_type: type, action_items: items }));
+      onSent(await api.send(job.id, { meeting_type: type, action_items: items, approved_by: name }));
     } catch (e) {
       setError(`${t.sendFailed} ${e.message}`);
       setSending(false);
@@ -151,7 +158,14 @@ export default function Review({ job, onSent, lang }) {
             <p className="all-set"><CircleCheck size={16} /> {t.allSet}</p>
           )}
 
-          <button className="btn primary block" onClick={send} disabled={sending}>
+          <label className={`field${!approver.trim() ? " empty" : ""}`}>
+            <span>{t.approvedBy}</span>
+            <input id="approver" value={approver} placeholder={t.approverPlaceholder} autoComplete="name"
+                   disabled={sending} onChange={(e) => setApprover(e.target.value)}
+                   onKeyDown={(e) => e.key === "Enter" && send()} />
+          </label>
+
+          <button className="btn primary block" onClick={send} disabled={sending || !approver.trim()}>
             <Send size={16} /> {sending ? t.sending : t.send}
           </button>
           {error && <p className="notice warn small" role="alert">{error}</p>}
@@ -168,6 +182,16 @@ export default function Review({ job, onSent, lang }) {
       )}
     </div>
   );
+}
+
+const APPROVER_KEY = "mom.approver";
+
+function loadApprover() {
+  try { return localStorage.getItem(APPROVER_KEY) || ""; } catch { return ""; }
+}
+
+function saveApprover(name) {
+  try { localStorage.setItem(APPROVER_KEY, name); } catch { /* private mode */ }
 }
 
 function Evidence({ quote, segments, onOpen }) {

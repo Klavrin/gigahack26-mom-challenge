@@ -10,13 +10,31 @@ def _flag(name: str, default: str = "0") -> bool:
     return _env(name, default).lower() in ("1", "true", "yes")
 
 
-WHISPER_MODEL = _env("WHISPER_MODEL", "large-v3-turbo")
+# large-v3 over large-v3-turbo: 53% vs 57-71% WER on the Moldovan lecture (turbo is unstable on
+# noisy audio), same Russian coverage in Parliament; ~7.8 min ASR per 60 min on an 8 GB laptop GPU.
+WHISPER_MODEL = _env("WHISPER_MODEL", "large-v3")
 WHISPER_DEVICE = _env("WHISPER_DEVICE", "cuda")
 WHISPER_COMPUTE_TYPE = _env("WHISPER_COMPUTE_TYPE", "int8_float16")
 WHISPER_DIR = Path(_env("WHISPER_DIR", "/models/whisper"))
-# "segment" = VAD split + per-utterance language ID (our pipeline)
-# "plain"   = stock Whisper, one language per 30 s window (baseline for WER)
-ASR_MODE = _env("ASR_MODE", "segment")
+# "longform" = 30 s windows with context, primary language forced, Russian re-checked
+#              per segment (default: best WER on a hand-corrected Moldovan lecture)
+# "segment"  = short VAD chunks transcribed one by one, no context (much worse WER)
+# "plain"    = stock Whisper, language auto-detected (baseline for WER)
+ASR_MODE = _env("ASR_MODE", "longform")
+ASR_MODES = ("longform", "segment", "plain")
+# longform: a segment switches to another language only above this detection probability.
+# 0.8 let noisy Romanian regions of the lecture through as Russian (WER 66.5% vs 53.0%).
+LONGFORM_SWITCH_PROB = float(_env("LONGFORM_SWITCH_PROB", "0.95"))
+# Off by default: +10 WER on the Moldovan lecture (hard Romanian flipped to Russian).
+LONGFORM_RESCUE = _flag("LONGFORM_RESCUE")
+# longform rescue: segments below this confidence (or flagged as hallucinations) are
+# decoded again in the other languages; the best version replaces them if clearly better.
+RESCUE_BELOW_LOGPROB = float(_env("RESCUE_BELOW_LOGPROB", "-0.7"))
+# ...a replacement for a hallucinated segment must reach at least this confidence.
+RESCUE_MIN_LOGPROB = float(_env("RESCUE_MIN_LOGPROB", "-0.6"))
+# ...and a replacement for a low-confidence segment must beat it by this much (names are
+# low-confidence in every language, so a small margin flips them to the wrong one).
+RESCUE_MARGIN = float(_env("RESCUE_MARGIN", "0.3"))
 ASR_LANGUAGES = tuple(_env("ASR_LANGUAGES", "ro,ru,en").split(","))   # first = primary language
 # Glossary prompt for Whisper. Off by default: on noisy audio Whisper copies the
 # prompt into the transcript (tested on a 96-min recording).

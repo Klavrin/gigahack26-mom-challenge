@@ -132,8 +132,76 @@ def transcribe(
         model = _load()
         if mode == "plain":
             return _transcribe_plain(model, audio, progress)
-        return _transcribe_segmented(model, audio, progress)
+        if mode == "segment":
+            return _transcribe_segmented(model, audio, progress)
+        return _transcribe_longform(model, audio, progress)
 
+
+def _language_runs(model, audio) -> list[tuple[int, int, str]]:
+    """VAD regions (<= 30 s) -> language per region -> consecutive same-language regions
+    merged into runs. The language must be chosen BEFORE decoding: Whisper forced to
+    Romanian on a Russian speech writes "Să vă mulțumim pentru vizionare" instead."""
+    from faster_whisper.vad import VadOptions, get_speech_timestamps
+
+    primary = config.ASR_LANGUAGES[0]
+    opts = VadOptions(min_silence_duration_ms=500, speech_pad_ms=300, max_speech_duration_s=30)
+    regions = [(c["start"], c["end"]) for c in get_speech_timestamps(audio, opts, sampling_rate=SR)]
+    runs: list[list] = []
+    lang = primary
+    for start, end in regions:
+        if end - start >= 2 * SR:                  # too short to judge: keep the running language
+            _, _, all_probs = model.detect_language(audio=audio[start:end])
+            probs = {l: p for l, p in all_probs if l in config.ASR_LANGUAGES and l != primary}
+            rival = max(probs, key=probs.get, default=None)
+            lang = rival if rival and probs[rival] >= config.LONGFORM_SWITCH_PROB else primary
+        if runs and runs[-1][2] == lang:
+            runs[-1][1] = end
+        else:
+            runs.append([start, end, lang])
+    return [tuple(r) for r in runs]
+
+
+def _transcribe_longform(model, audio, progress) -> list[dict]:
+    """Language runs, each decoded with Whisper's 30 s windows and the previous text
+    as context. On a hand-corrected Moldovan lecture this beat short-chunk decoding
+    by ~30 WER points; on the Parliament session it keeps whole Russian speeches."""
+    total = len(audio) / SR
+    out: list[dict] = []
+    for start, end, lang in _language_runs(model, audio):
+        offset = start / SR
+        run = audio[start:end]
+        segments, _ = model.transcribe(run, language=lang, beam_size=5, vad_filter=True)
+        for s in segments:
+            progress(min((offset + s.end) / total, 1.0))
+            chunk = run[int(s.start * SR):int(s.end * SR)]
+            text, seg_lang, logp = _rescue(model, chunk, s.text.strip(), lang, s.avg_logprob)
+            if not _is_hallucination(text):
+                out.append({"start": round(offset + s.start, 2), "end": round(offset + s.end, 2),
+                            "lang": seg_lang, "logprob": round(logp, 2), "text": text,
+                            "speaker": None})
+    return out
+
+
+def _rescue(model, chunk, text: str, lang: str, logp: float) -> tuple[str, str, float]:
+    """A doubtful segment (low confidence, or a hallucination such as Whisper writing
+    "Să vă mulțumim pentru vizionare" over Russian speech) is decoded again in the
+    other languages; the best alternative replaces it only if it is clearly better."""
+    hallucinated = _is_hallucination(text)
+    if not config.LONGFORM_RESCUE or len(chunk) < SR or \
+            not (hallucinated or logp < config.RESCUE_BELOW_LOGPROB):
+        return text, lang, logp
+    best = (text, lang, logp)
+    for other in config.ASR_LANGUAGES:
+        if other == lang:
+            continue
+        r_text, r_logp = _decode(model, chunk, other, None)
+        if _is_hallucination(r_text):
+            continue
+        good_enough = r_logp >= config.RESCUE_MIN_LOGPROB if hallucinated else \
+            r_logp > logp + config.RESCUE_MARGIN
+        if good_enough and (best[1] == lang or r_logp > best[2]):
+            best = (r_text, other, r_logp)
+    return best
 
 def _transcribe_nemotron(audio, progress) -> list[dict]:
     """Same VAD chunks as the Whisper path; each chunk goes to the local Nemotron
@@ -207,7 +275,7 @@ def _transcribe_segmented(model, audio, progress) -> list[dict]:
         lang = primary
         if rival and probs[rival] >= config.SWITCH_MIN_PROB:
             r_text, r_logp = _decode(model, chunk, rival, prompts.get(rival))
-            if r_logp > logp + config.SWITCH_MARGIN:
+            if r_logp > logp + config.RESCUE_MARGIN:
                 text, logp, lang = r_text, r_logp, rival
         if logp >= config.MIN_AVG_LOGPROB and not _is_hallucination(text):
             out.append({"start": round(start / SR, 2), "end": round(end / SR, 2),
@@ -217,18 +285,40 @@ def _transcribe_segmented(model, audio, progress) -> list[dict]:
     return out
 
 
-def transcribe_remote(path: str, mode: Optional[str] = None) -> list[dict]:
-    """Send the audio to the ASR worker at ASR_URL; returns the same list as transcribe()."""
+def transcribe_remote(path: str, mode: Optional[str] = None,
+                      progress: Callable[[float], None] = lambda f: None) -> list[dict]:
+    """Send the audio to the ASR worker at ASR_URL; returns the same list as transcribe().
+    While the worker runs, its per-chunk progress is polled so the UI bar moves."""
+    import uuid
+
     import httpx
 
-    with open(path, "rb") as f:
-        resp = httpx.post(
-            f"{config.ASR_URL}/api/asr",
-            files={"file": (Path(path).name, f)},
-            data={"mode": mode or config.ASR_MODE},
-            timeout=3600,
-        )
+    progress_id = uuid.uuid4().hex
+    done = threading.Event()
+
+    def poll() -> None:
+        with httpx.Client(timeout=5) as client:
+            while not done.wait(1.0):
+                try:
+                    r = client.get(f"{config.ASR_URL}/api/asr/progress/{progress_id}")
+                    if r.status_code == 200:
+                        progress(float(r.json().get("progress", 0.0)))
+                except (httpx.HTTPError, ValueError):
+                    pass   # an older worker without progress: the bar just waits
+
+    threading.Thread(target=poll, daemon=True, name="asr-progress").start()
+    try:
+        with open(path, "rb") as f:
+            resp = httpx.post(
+                f"{config.ASR_URL}/api/asr",
+                files={"file": (Path(path).name, f)},
+                data={"mode": mode or config.ASR_MODE, "progress_id": progress_id},
+                timeout=3600,
+            )
+    finally:
+        done.set()
     resp.raise_for_status()
+    progress(1.0)
     return resp.json()
 
 
