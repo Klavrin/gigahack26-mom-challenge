@@ -154,7 +154,7 @@ def _transcribe(job: dict) -> tuple[list[dict], list[dict]]:
     with ThreadPoolExecutor(1) as pool:
         diar = pool.submit(nemo_client.diarize, audio) if config.DIARIZATION_URL else None
         if config.ASR_URL:
-            segments = asr.transcribe_remote(job["audio"])
+            segments = asr.transcribe_remote(job["audio"], progress=progress)
         else:
             segments = asr.transcribe(audio, progress=progress)
             asr.unload()   # give the GPU to the LLM

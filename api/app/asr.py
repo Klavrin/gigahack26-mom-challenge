@@ -217,18 +217,40 @@ def _transcribe_segmented(model, audio, progress) -> list[dict]:
     return out
 
 
-def transcribe_remote(path: str, mode: Optional[str] = None) -> list[dict]:
-    """Send the audio to the ASR worker at ASR_URL; returns the same list as transcribe()."""
+def transcribe_remote(path: str, mode: Optional[str] = None,
+                      progress: Callable[[float], None] = lambda f: None) -> list[dict]:
+    """Send the audio to the ASR worker at ASR_URL; returns the same list as transcribe().
+    While the worker runs, its per-chunk progress is polled so the UI bar moves."""
+    import uuid
+
     import httpx
 
-    with open(path, "rb") as f:
-        resp = httpx.post(
-            f"{config.ASR_URL}/api/asr",
-            files={"file": (Path(path).name, f)},
-            data={"mode": mode or config.ASR_MODE},
-            timeout=3600,
-        )
+    progress_id = uuid.uuid4().hex
+    done = threading.Event()
+
+    def poll() -> None:
+        with httpx.Client(timeout=5) as client:
+            while not done.wait(1.0):
+                try:
+                    r = client.get(f"{config.ASR_URL}/api/asr/progress/{progress_id}")
+                    if r.status_code == 200:
+                        progress(float(r.json().get("progress", 0.0)))
+                except (httpx.HTTPError, ValueError):
+                    pass   # an older worker without progress: the bar just waits
+
+    threading.Thread(target=poll, daemon=True, name="asr-progress").start()
+    try:
+        with open(path, "rb") as f:
+            resp = httpx.post(
+                f"{config.ASR_URL}/api/asr",
+                files={"file": (Path(path).name, f)},
+                data={"mode": mode or config.ASR_MODE, "progress_id": progress_id},
+                timeout=3600,
+            )
+    finally:
+        done.set()
     resp.raise_for_status()
+    progress(1.0)
     return resp.json()
 
 
