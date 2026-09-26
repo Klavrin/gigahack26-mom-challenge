@@ -1,4 +1,5 @@
-"""Job runner: audio -> transcript -> MoM -> n8n. One GPU, so one job at a time."""
+"""Job runner: audio -> transcript -> MoM draft -> human review -> n8n.
+One GPU, so one job at a time."""
 import datetime as dt
 import json
 import queue
@@ -12,10 +13,11 @@ import httpx
 
 from . import asr, config, llm, mock, render
 
-STAGES = ["queued", "transcribing", "correcting", "extracting", "sending", "done"]
+STAGES = ["queued", "transcribing", "correcting", "extracting", "review", "sending", "done"]
 
 _jobs: dict[str, dict] = {}
 _queue: "queue.Queue[str]" = queue.Queue()
+_send_lock = threading.Lock()
 
 
 def job_dir(job_id: str) -> Path:
@@ -78,24 +80,55 @@ def run(job: dict) -> None:
     t = stage("extracting")
     mom = (mock if config.MOCK_MODELS else llm).extract_mom(transcript, job["meeting_type"], date)
     job["timings"]["llm_s"] = round(time.time() - t, 1)
+    _write(jid, "mom_draft.json", json.dumps(mom, ensure_ascii=False, indent=1))
+    _write(jid, "mom.json", json.dumps(mom, ensure_ascii=False, indent=1))
+    _write(jid, "mom.html", render.render_html(mom, job["meeting_type"], date))
+
+    # Nothing is emailed until a person has checked owners and deadlines (send()).
+    job["timings"]["total_s"] = round(time.time() - t0, 1)
+    job["review_since"] = time.time()
+    job["stage"], job["progress"] = "review", 1.0
+
+
+def send(job: dict, action_items: list[dict]) -> dict:
+    """Apply the reviewer's owner/deadline edits, re-render, deliver through n8n."""
+    jid = job["id"]
+    date = dt.date.fromisoformat(job["meeting_date"])
+    with _send_lock:
+        if job["stage"] != "review":
+            raise ValueError(f"job is {job['stage']}, not waiting for review")
+        mom = json.loads((job_dir(jid) / "mom.json").read_text(encoding="utf-8"))
+        items = mom.get("action_items", [])
+        if len(action_items) != len(items):
+            raise ValueError(f"expected {len(items)} action items, got {len(action_items)}")
+        for item, edit in zip(items, action_items):
+            deadline = edit["deadline"].strip()
+            if deadline:
+                dt.date.fromisoformat(deadline)   # ValueError -> 400
+            item["owner"], item["deadline"] = edit["owner"].strip(), deadline
+        job["stage"], job["error"] = "sending", None
+
     html = render.render_html(mom, job["meeting_type"], date)
     _write(jid, "mom.json", json.dumps(mom, ensure_ascii=False, indent=1))
     _write(jid, "mom.html", html)
-
-    t = stage("sending")
-    httpx.post(config.N8N_WEBHOOK_URL, json={
-        "job_id": jid,
-        "meeting_type": job["meeting_type"],
-        "meeting_date": job["meeting_date"],
-        "subject": render.subject(mom, job["meeting_type"], date),
-        "html": html,
-        "mom": mom,
-    }, timeout=60).raise_for_status()
+    t = time.time()
+    try:
+        httpx.post(config.N8N_WEBHOOK_URL, json={
+            "job_id": jid,
+            "meeting_type": job["meeting_type"],
+            "meeting_date": job["meeting_date"],
+            "subject": render.subject(mom, job["meeting_type"], date),
+            "html": html,
+            "mom": mom,
+        }, timeout=60).raise_for_status()
+    except httpx.HTTPError as e:
+        job["stage"], job["error"] = "review", f"Sending failed: {e}"   # let the user retry
+        raise
     job["timings"]["send_s"] = round(time.time() - t, 1)
-
-    job["timings"]["total_s"] = round(time.time() - t0, 1)
+    job["timings"]["review_s"] = round(t - job["review_since"], 1)
     _write(jid, "timings.json", json.dumps(job["timings"], indent=1))
-    job["stage"], job["progress"] = "done", 1.0
+    job["stage"] = "done"
+    return job
 
 
 def _transcribe(job: dict) -> list[dict]:

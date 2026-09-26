@@ -7,6 +7,7 @@ import httpx
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 
 from . import asr, config, mock, pipeline
 
@@ -52,6 +53,38 @@ def _job_file(job_id: str, name: str) -> Path:
     if not pipeline.get(job_id) or not path.exists():
         raise HTTPException(404)
     return path
+
+
+class ActionItemEdit(BaseModel):
+    owner: str = ""
+    deadline: str = ""   # YYYY-MM-DD or ""
+
+
+class SendRequest(BaseModel):
+    action_items: list[ActionItemEdit] = []
+
+
+@app.post("/api/jobs/{job_id}/send")
+def job_send(job_id: str, body: SendRequest):
+    job = pipeline.get(job_id)
+    if not job:
+        raise HTTPException(404)
+    try:
+        return pipeline.send(job, [a.model_dump() for a in body.action_items])
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except httpx.HTTPError as e:
+        raise HTTPException(502, f"n8n delivery failed: {e}")
+
+
+@app.get("/api/jobs/{job_id}/mom.json")
+def job_mom_json(job_id: str):
+    return FileResponse(_job_file(job_id, "mom.json"), media_type="application/json")
+
+
+@app.get("/api/jobs/{job_id}/segments.json")
+def job_segments(job_id: str):
+    return FileResponse(_job_file(job_id, "segments.json"), media_type="application/json")
 
 
 @app.get("/api/jobs/{job_id}/mom.html", response_class=HTMLResponse)
