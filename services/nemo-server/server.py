@@ -23,6 +23,9 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 
 ASR_MODEL = os.environ.get("NEMOTRON_MODEL", "nvidia/nemotron-3.5-asr-streaming-0.6b")
 DIAR_MODEL = os.environ.get("DIAR_MODEL", "nvidia/diar_streaming_sortformer_4spk-v2.1")
+# Right attention context in encoder frames: 0 / 3 (default, 320 ms) / 6 / 13 (1.12 s, most
+# accurate). 13 measurably helped on real Moldovan audio; latency does not matter for uploads.
+LOOKAHEAD = int(os.environ.get("NEMOTRON_LOOKAHEAD", "13"))
 LOAD = {x.strip() for x in os.environ.get("NEMO_LOAD", "asr,diar").split(",") if x.strip()}
 SR = 16000
 LANG_TAG = re.compile(r"<([a-z]{2})-[A-Z]{2}>")
@@ -71,6 +74,7 @@ def transcribe(file: UploadFile = File(...), language: str = Form("auto")):
     with _gpu, torch.inference_mode():
         inputs = _processor(audio, sampling_rate=SR, language=language)
         inputs.to(_asr.device, dtype=_asr.dtype)
+        inputs["num_lookahead_tokens"] = LOOKAHEAD
         out = _asr.generate(**inputs, return_dict_in_generate=True)
         raw = _processor.decode(out.sequences[0], skip_special_tokens=False)
     tags = LANG_TAG.findall(raw)
