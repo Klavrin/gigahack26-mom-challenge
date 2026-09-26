@@ -212,9 +212,17 @@ Laptop stack and GPU node in one Compose project on the same host:
 
 ```bash
 # .env: MOCK_MODELS=0, ASR_URL=http://asr:8000, OLLAMA_URL=http://ollama:11434, ASR_PORT=8001
-docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
-# + Nemotron / diarization:  add --profile nemo
+#       DIARIZATION_URL=http://nemo:8001, NEMO_LOAD=diar      (speaker labels)
+docker compose -f docker-compose.yml -f docker-compose.gpu.yml --profile nemo up -d --build
 ```
+
+Measured on an RTX 5060 Laptop (8 GB): Whisper + Sortformer + Qwen 2.5 7B all fit (run in turn).
+
+| Test | Result |
+|---|---|
+| 96-min real lecture recording (RO/RU, phone mic) | 12 min upload → draft minutes |
+| Sortformer, 3-speaker meeting with ground truth | 8/8 turns attributed, 3 distinct labels |
+| Nemotron 3.5 ASR vs Whisper, 5 real Moldovan-Romanian phrases | Nemotron 2/5 (best setting), Whisper 5/5 → Whisper used |
 
 ## n8n delivery contract (v2)
 
