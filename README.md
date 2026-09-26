@@ -1,109 +1,55 @@
-# On-premise Minutes of Meeting (GigaHack 2026 · Medpark challenge)
+# Secure MoM · GigaHack 2026
 
-Audio of a hospital meeting (Romanian with Russian/English code-switching and medical
-vocabulary) → transcript → structured minutes (decisions, action items, owners,
-deadlines) → emailed to the right distribution list. **Runs 100% offline on one machine.**
+The revised physical-meeting architecture is:
 
-```
- Browser (upload / Rec)                              all containers on one host, no egress
-        │
-        ▼
- ┌─────────────┐   ┌──────────────────────────┐   ┌──────────────┐   ┌────────┐   ┌─────────┐
- │ FastAPI api │──▶│ faster-whisper (GPU)     │──▶│ Ollama LLM   │──▶│  n8n   │──▶│ Mailpit │
- │ + web page  │   │ VAD → per-utterance lang │   │ JSON-schema  │   │ Switch │   │ (SMTP)  │
- └─────────────┘   │ ID (ro/ru/en) → prompt   │   │ MoM extract  │   │ by type│   └─────────┘
-                   └──────────────────────────┘   └──────────────┘   └────────┘
+```text
+Capture → preserve raw audio + Silero VAD → chunks
+  → Nemotron ASR + NeMo diarization/identification (NVIDIA workers)
+  → timestamp merge and structured meeting state (MacBook backend)
+  → Qwen3 live extraction + final reconciliation (AMD/Ollama)
+  → human review → backend DOCX/PDF generation
+  → n8n approved-state validation → meeting-type routing → Mailpit
 ```
 
-## Why this handles code-switching
+The backend owns the meeting state. Unknown owners/deadlines remain `null`.
+Transcripts and speaker embeddings stay in the backend; n8n receives an approved
+snapshot and document bytes. See [the workflow guide](n8n/README.md) for the
+contract, responsibilities, network addresses, and backend handoff.
 
-Stock Whisper picks **one language per 30 s window**, so Russian inside a Romanian
-meeting gets translated or garbled. We:
+## Run the portable automation stack
 
-1. split audio at pauses with **Silero VAD** into utterance-sized chunks (≤20 s),
-2. detect the language **per chunk**, restricted to `ro/ru/en` (short or low-confidence chunks keep the running language),
-3. transcribe each chunk with that language forced, a **medical glossary prompt** in that language,
-   `condition_on_previous_text=False` (no repetition loops) and a filter for known
-   Whisper hallucinations ("Subtitrare…", "Продолжение следует").
-4. optional: a local-LLM **glossary correction pass** that fixes only medical-term spelling and
-   rejects any line it rewrote too much (`CORRECT_TRANSCRIPT=1`).
-
-`ASR_MODE=plain` runs stock Whisper so we can measure the difference (see *Evaluation*).
-
-## Run it
-
-Requirements: Docker Desktop (WSL2 backend) with an NVIDIA GPU (8 GB is enough).
-
-```bash
+```sh
 cp .env.example .env
-docker compose up -d --build
-sh scripts/pull-models.sh        # once, online: LLM + Whisper weights → ./models
+# For non-demo use, choose a persistent N8N_ENCRYPTION_KEY before first startup.
+# Keep it unchanged while reusing the n8n_data volume.
+docker compose up -d
+node n8n/test-contract.cjs
+node n8n/smoke-test.cjs
 ```
 
-- Web app: http://localhost:8000
-- Inbox (Mailpit): http://localhost:8025
-- n8n editor: http://localhost:5678 (workflow *MoM routing & delivery* is imported and active)
+Windows PowerShell: `Copy-Item .env.example .env`. Docker Desktop uses Linux
+containers. No GPU is required for this stack. Open [n8n](http://localhost:5678)
+and [Mailpit](http://localhost:8025). Tests send only synthetic minutes.
 
-**Offline demo:** set `OFFLINE=1` in `.env`, `docker compose up -d`, turn Wi-Fi off, upload.
+## Implementation boundaries
 
-## Privacy / security
+The v2 n8n workflow includes approval/schema validation, nullable assignments,
+important notes, portable PDF/DOCX attachments, and three distribution routes.
+It rejects the old unapproved HTML contract.
 
-- No cloud calls anywhere: ASR, LLM, workflow engine and SMTP are local containers.
-- n8n telemetry, version checks and template gallery are disabled.
-- Internal tools (Ollama, n8n, SMTP) bind to `127.0.0.1`; only the web app and inbox are exposed.
-- Raw audio is deleted right after transcription (`KEEP_AUDIO=0`); audio/transcripts are git-ignored.
-- With `OFFLINE=1` model files are loaded from disk only.
+The checked-in `api/` is still the legacy upload/Whisper/Qwen2.5 implementation.
+Live capture, remote Nemotron/NeMo clients, Qwen3 state updates, transcript merging,
+human review, and document generation remain backend/model-team work. Updating the
+workflow does not implement those services. The schema freezes the delivery
+boundary for those teammates.
 
-## Evaluation
+The old NVIDIA containers are opt-in under `--profile legacy-nvidia`. They are
+kept for reference; their automatic delivery payload is incompatible with the new
+approval gate. The AMD Qwen host should run its separately configured Ollama, not
+this legacy NVIDIA service. `QWEN_URL`, `NEMOTRON_URL`, and `NEMO_URL` in the example
+environment document the coordinator handoff; the legacy API only maps QWEN_URL to
+its existing Ollama client.
 
-```bash
-# inside the api container
-docker compose exec api python -m app.cli transcribe /data/dev.wav --mode plain   --out /data/out/plain.txt
-docker compose exec api python -m app.cli transcribe /data/dev.wav --mode segment --out /data/out/segment.txt
-docker compose exec api python eval/wer.py /data/refs/dev.txt /data/out/plain.txt /data/out/segment.txt
-```
-
-The 11-min sample is split: **0–6 min = dev** (tune on it), **6–11 min = held-out test**
-(only measured at the end). Cut with
-`ffmpeg -i sample.mp3 -t 360 dev.wav` / `ffmpeg -i sample.mp3 -ss 360 test.wav`.
-
-| Setup | WER dev | WER test | CER test |
-|---|---|---|---|
-| Whisper large-v3-turbo, plain | – | – | – |
-| + VAD / per-utterance language | – | – | – |
-| + glossary prompt | – | – | – |
-| + LLM correction | – | – | – |
-
-**Speed** (60-min recording, `scripts/make-60min.sh`), RTX 5060 Laptop 8 GB:
-
-| Stage | Time |
-|---|---|
-| ASR | – |
-| LLM extraction | – |
-| n8n + email | – |
-| **Upload → email** | – |
-
-## Layout
-
-```
-api/app/asr.py        hybrid ASR (VAD, per-utterance language ID, prompts, hallucination filter)
-api/app/llm.py        Ollama calls: glossary correction, MoM extraction (JSON schema, map-reduce)
-api/app/render.py     email-safe HTML minutes
-api/app/pipeline.py   job queue: transcribe → correct → extract → n8n
-api/app/cli.py        transcribe / mom / download from the command line
-api/static/index.html upload + Rec web page
-n8n/                  routing workflow + SMTP credential (auto-imported)
-glossary/             Whisper prompts per language, medical term list
-eval/wer.py           WER/CER + most frequent substitutions
-```
-
-## Configuration (`.env`)
-
-| Variable | Default | |
-|---|---|---|
-| `LLM_MODEL` | `qwen2.5:7b-instruct` | any Ollama model; 7–8B Q4 fits 8 GB |
-| `WHISPER_MODEL` | `large-v3-turbo` | |
-| `ASR_MODE` | `segment` | `plain` = baseline |
-| `CORRECT_TRANSCRIPT` | `0` | LLM glossary correction pass |
-| `KEEP_AUDIO` | `0` | keep uploaded audio after transcription |
-| `OFFLINE` | `0` | `1` = never download models |
+Model accuracy, multilingual performance, live recovery, and physical ARM/Windows
+machine compatibility still require team integration testing. Repeated delivery
+requests send repeated emails; inspect ambiguous timeouts before retrying.

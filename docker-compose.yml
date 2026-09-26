@@ -1,6 +1,5 @@
-# On-premise MoM pipeline. Everything runs on one machine; nothing calls out.
-# First run (online, once):   docker compose up -d --build && ./scripts/pull-models.sh
-# Demo run (Wi-Fi off):       docker compose up -d
+# Portable automation stack: docker compose up -d
+# Old GPU backend only: docker compose --profile legacy-nvidia up -d --build
 name: mom
 
 x-gpu: &gpu
@@ -14,6 +13,7 @@ x-gpu: &gpu
 
 services:
   api:
+    profiles: [legacy-nvidia]
     build: ./api
     <<: *gpu
     ports:
@@ -28,8 +28,8 @@ services:
       CORRECT_TRANSCRIPT: ${CORRECT_TRANSCRIPT:-0}
       KEEP_AUDIO: ${KEEP_AUDIO:-0}
       OFFLINE: ${OFFLINE:-0}
-      OLLAMA_URL: http://ollama:11434
-      N8N_WEBHOOK_URL: http://n8n:5678/webhook/mom
+      OLLAMA_URL: ${QWEN_URL:-http://ollama:11434}
+      N8N_WEBHOOK_URL: ${N8N_WEBHOOK_URL:-http://n8n:5678/webhook/mom}
       TZ: Europe/Chisinau
     volumes:
       - ./models/whisper:/models/whisper
@@ -40,6 +40,7 @@ services:
     restart: unless-stopped
 
   ollama:
+    profiles: [legacy-nvidia]
     image: ollama/ollama:latest
     <<: *gpu
     ports:
@@ -65,7 +66,13 @@ services:
       N8N_PERSONALIZATION_ENABLED: "false"
       N8N_HIRING_BANNER_ENABLED: "false"
       N8N_SECURE_COOKIE: "false"
+      N8N_PAYLOAD_SIZE_MAX: "8"
+      EXECUTIONS_DATA_MAX_AGE: "24"
       N8N_RUNNERS_ENABLED: "true"
+      N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS: "true"
+      N8N_BLOCK_ENV_ACCESS_IN_NODE: "true"
+      N8N_GIT_NODE_DISABLE_BARE_REPOS: "true"
+      DB_SQLITE_POOL_SIZE: "2"
       GENERIC_TIMEZONE: Europe/Chisinau
       TZ: Europe/Chisinau
     volumes:
@@ -76,19 +83,21 @@ services:
     image: n8nio/n8n:1.123.82
     environment: *n8n-env
     ports:
-      - "127.0.0.1:5678:5678"
+      - "${N8N_BIND_ADDRESS:-127.0.0.1}:5678:5678"
     volumes:
       - n8n_data:/home/node/.n8n
     depends_on:
       n8n-init:
         condition: service_completed_successfully
+      mailpit:
+        condition: service_started
     restart: unless-stopped
 
   # Local mail catcher = the "hospital mail server" for the demo.
   mailpit:
     image: axllent/mailpit:latest
     ports:
-      - "8025:8025"   # inbox UI
+      - "${MAILPIT_BIND_ADDRESS:-127.0.0.1}:8025:8025"   # inbox UI
       - "127.0.0.1:1025:1025"
     restart: unless-stopped
 

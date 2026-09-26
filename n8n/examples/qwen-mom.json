@@ -1,0 +1,15 @@
+{
+  "schema_version": "1",
+  "job_id": "qwen-contract-demo-001",
+  "meeting_type": "medical",
+  "meeting_date": "2026-09-25",
+  "mom": {
+    "title": "Ședință medicală — exemplu sintetic",
+    "summary": "Echipa a decis verificarea stocurilor. Acesta este un exemplu de contract, nu rezultatul unui model.",
+    "participants": ["Dr. Ana"],
+    "topics": [{"topic": "Stocuri", "discussion": "Verificarea consumabilelor din secție."}],
+    "decisions": [{"decision": "Se verifică stocurile.", "evidence": "Verificăm stocurile până luni."}],
+    "action_items": [{"task": "Verificarea stocurilor", "owner": "Dr. Ana", "deadline": "2026-09-28", "deadline_text": "până luni", "evidence": "Ana verifică stocurile până luni."}],
+    "open_questions": []
+  }
+}
