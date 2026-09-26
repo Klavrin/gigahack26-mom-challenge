@@ -55,7 +55,7 @@ cp .env.example .env              # MOCK_MODELS=1
 docker compose up -d --build
 ```
 
-- Web app: http://localhost:8000 (header dots show which node does ASR / LLM / n8n)
+- Web app: http://localhost:8000 (settings icon → which node does ASR / LLM / n8n)
 - Inbox (Mailpit): http://localhost:8025
 - n8n editor: http://localhost:5678 (workflow *MoM routing & delivery* is imported and active)
 
@@ -90,12 +90,36 @@ docker compose up -d
 **Offline demo:** set `OFFLINE=1` on the GPU node, keep both machines on the same
 switch/hotspot with no internet uplink, upload.
 
+## The web app
+
+Built for doctors, not IT: the home screen is one drop zone and one *Record* button.
+Everything technical (which node does ASR/LLM, mock mode, links to Mailpit and n8n,
+interface language RO/EN, default distribution list) is behind the settings icon,
+which shows a small dot when something needs attention.
+
+- **Drop or record.** A file can be dropped anywhere on the page; its modified date is
+  used as the meeting date. Recording has a live level meter, pause, and keeps the
+  screen awake.
+- **Plain-language progress** (*Transcriem · Redactăm · Gata de verificat*); the page can
+  be closed and the draft reopened from *Recente*.
+- **Review like a document.** Every decision and task shows the quote it came from;
+  clicking the quote opens the transcript at that moment. The transcript shows the
+  ro/ru/en share of the meeting.
+- **Distribution list chosen at the end**, next to the send button, with who is on each list.
+
+Frontend development (Node 20.19+), against a backend on :8000:
+
+```bash
+cd api/web && npm install && npm run dev      # http://localhost:5173
+```
+
+The Docker image builds the app itself (multi-stage), so neither machine needs Node.
+
 ## Review before sending
 
-Processing stops at a **draft**. The page shows decisions (with the quote that supports
-each), the action items with editable owner and deadline (empty ones highlighted, the
-spoken deadline shown next to the resolved date) and the transcript with colour-coded
-ro/ru/en tags. Nothing is emailed until someone clicks *Approve & email*
+Processing stops at a **draft**. Owners and deadlines are editable (empty ones are
+highlighted and counted next to the send button; the spoken deadline is shown under the
+resolved date). Nothing is emailed until someone clicks *Aprobați și trimiteți*
 (`POST /api/jobs/{id}/send`). The model's original draft is kept as `mom_draft.json`.
 
 ## Privacy / security
@@ -148,7 +172,8 @@ api/app/render.py     email-safe HTML minutes
 api/app/pipeline.py   job queue: transcribe → correct → extract → review → send to n8n
 api/app/main.py       HTTP API, incl. /api/asr (ASR worker) and /api/health (node status)
 api/app/cli.py        transcribe / mom / download from the command line
-api/static/index.html upload + Rec, progress, review/edit, approve
+api/web/              React app (Vite): drop or record → progress → review → send;
+                      technical status and links live in Settings
 n8n/                  routing workflow + SMTP credential (auto-imported)
 glossary/             Whisper prompts per language, medical term list
 eval/wer.py           WER/CER + most frequent substitutions
@@ -159,10 +184,11 @@ scripts/              pull-models.sh (GPU node), smoke-gpu-node.sh (laptop → G
 
 | Endpoint | |
 |---|---|
+| `GET /api/jobs` | 10 most recent jobs (id, stage, title, type, date) |
 | `POST /api/jobs` | multipart `file`, `meeting_type`, `meeting_date` → job |
 | `GET /api/jobs/{id}` | stage (`queued` → `transcribing` → `extracting` → `review` → `sending` → `done`/`failed`), progress, timings |
 | `GET /api/jobs/{id}/mom.json`, `segments.json`, `mom.html`, `transcript.txt` | results |
-| `POST /api/jobs/{id}/send` | `{"action_items": [{"owner", "deadline"}, …]}` (one per item, in order) → emails via n8n |
+| `POST /api/jobs/{id}/send` | `{"meeting_type"?, "action_items": [{"owner", "deadline"}, …]}` (one per item, in order) → emails via n8n |
 | `POST /api/asr` | ASR worker: multipart `file`, `mode` → segment list |
 | `GET /api/health` | status + location of ASR, LLM and n8n |
 
