@@ -8,6 +8,10 @@ deadlines) → **human review** → emailed to the right distribution list.
 Two roles, like a real hospital: thin clients on staff laptops, one GPU server in the
 server room.
 
+**Diagrams** (stack, one meeting start to finish, ASR internals, deployment modes):
+[docs/architecture.md](docs/architecture.md). **Demo script with answer key:**
+[docs/demo-script.md](docs/demo-script.md).
+
 ```
  LAPTOP (no models)                                   GPU NODE (hospital LAN)
  ┌──────────────────────────────┐   audio  ┌───────────────────────────────┐
