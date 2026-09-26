@@ -54,7 +54,13 @@ def to_state(job: dict, mom: dict, ended_at: dt.datetime) -> dict:
     }
 
 
-def minutes_docx(mom: dict, meeting_type: str, date: dt.date) -> bytes:
+def _clock(seconds: float) -> str:
+    s = int(seconds)
+    return f"{s // 3600:02d}:{s % 3600 // 60:02d}:{s % 60:02d}"
+
+
+def minutes_docx(mom: dict, meeting_type: str, date: dt.date,
+                 transcript: list[dict] | None = None) -> bytes:
     doc = Document()
     doc.styles["Normal"].font.name = "Calibri"
     doc.styles["Normal"].font.size = Pt(11)
@@ -97,6 +103,21 @@ def minutes_docx(mom: dict, meeting_type: str, date: dt.date) -> bytes:
         for q in mom["open_questions"]:
             doc.add_paragraph(q, style="List Bullet")
 
+    if transcript:
+        # Opt-in at review time only: the transcript holds everything that was said,
+        # patient details included.
+        doc.add_page_break()
+        doc.add_heading("Anexă: Transcriere", level=1)
+        doc.add_paragraph().add_run("Transcriere automată (poate conține erori de recunoaștere). "
+                                    "Format: [ora · limba · vorbitor] text.").italic = True
+        for seg in transcript:
+            p = doc.add_paragraph()
+            who = f" · {seg['speaker']}" if seg.get("speaker") else ""
+            meta = p.add_run(f"[{_clock(seg.get('start', 0))} · {seg.get('lang', '')}{who}] ")
+            meta.font.size = Pt(9)
+            p.add_run(seg.get("text", ""))
+            p.paragraph_format.space_after = Pt(2)
+
     footer = doc.sections[0].footer.paragraphs[0]
     footer.text = "Generat on-premise. Înregistrarea și transcrierea nu au părăsit rețeaua internă."
     buf = io.BytesIO()
@@ -104,15 +125,20 @@ def minutes_docx(mom: dict, meeting_type: str, date: dt.date) -> bytes:
     return buf.getvalue()
 
 
-def payload(job: dict, mom: dict, approved_by: str, attempt: int) -> dict:
+def payload(job: dict, mom: dict, approved_by: str, attempt: int,
+            transcript: list[dict] | None = None) -> dict:
     date = dt.date.fromisoformat(job["meeting_date"])
     now = dt.datetime.now().astimezone()
     ended_at = dt.datetime.fromtimestamp(job["created"]).astimezone()   # upload = meeting over
-    docx = minutes_docx(mom, job["meeting_type"], date)
+    docx = minutes_docx(mom, job["meeting_type"], date, transcript)
+    state = to_state(job, mom, min(ended_at, now))
+    if transcript:
+        state["important_notes"].append(
+            "Transcrierea completă este anexată la procesul-verbal (DOCX), la cererea celui care a aprobat.")
     return {
         "schema_version": "2",
         "delivery_id": f"{job['id']}-{attempt}",
-        "state": to_state(job, mom, min(ended_at, now)),
+        "state": state,
         "approval": {
             "status": "approved",
             "approved_by": approved_by.strip() or "Reviewer (web app)",

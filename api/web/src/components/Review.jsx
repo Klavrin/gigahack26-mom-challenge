@@ -15,6 +15,7 @@ export default function Review({ job, onSent, lang }) {
   const [error, setError] = useState(null);
   const [transcriptAt, setTranscriptAt] = useState(null);   // null = closed, -1 = open at top
   const [approver, setApprover] = useState(loadApprover);    // who signs off; remembered per browser
+  const [attachTranscript, setAttachTranscript] = useState(false);   // opt-in, never remembered
 
   useEffect(() => {
     Promise.all([api.mom(job.id), api.segments(job.id)]).then(([m, s]) => {
@@ -52,7 +53,7 @@ export default function Review({ job, onSent, lang }) {
     setError(null);
     saveApprover(name);
     try {
-      onSent(await api.send(job.id, { meeting_type: type, action_items: items, approved_by: name }));
+      onSent(await api.send(job.id, { meeting_type: type, action_items: items, approved_by: name, attach_transcript: attachTranscript }));
     } catch (e) {
       setError(`${t.sendFailed} ${e.message}`);
       setSending(false);
@@ -167,6 +168,15 @@ export default function Review({ job, onSent, lang }) {
             <input id="approver" value={approver} placeholder={t.approverPlaceholder} autoComplete="name"
                    disabled={sending} onChange={(e) => setApprover(e.target.value)}
                    onKeyDown={(e) => e.key === "Enter" && send()} />
+          </label>
+
+          <label className="attach-transcript">
+            <input type="checkbox" checked={attachTranscript} disabled={sending}
+                   onChange={(e) => setAttachTranscript(e.target.checked)} />
+            <span>
+              {t.attachTranscript}
+              <small>{t.attachTranscriptHint}</small>
+            </span>
           </label>
 
           <button className="btn primary block" onClick={send} disabled={sending || !approver.trim()}>

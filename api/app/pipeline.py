@@ -103,7 +103,7 @@ def recent(limit: int = 10) -> list[dict]:
 
 
 def send(job: dict, action_items: list[dict], meeting_type: str | None = None,
-         approved_by: str = "") -> dict:
+         approved_by: str = "", attach_transcript: bool = False) -> dict:
     """Apply the reviewer's edits (owners, deadlines, distribution list), re-render,
     deliver through n8n."""
     jid = job["id"]
@@ -136,7 +136,10 @@ def send(job: dict, action_items: list[dict], meeting_type: str | None = None,
     t = time.time()
     try:
         job["attempts"] = job.get("attempts", 0) + 1
-        body = delivery.payload(job, mom, approved_by, job["attempts"])   # n8n contract v2
+        transcript = None
+        if attach_transcript:
+            transcript = json.loads((job_dir(jid) / "segments.json").read_text(encoding="utf-8"))
+        body = delivery.payload(job, mom, approved_by, job["attempts"], transcript)   # n8n contract v2
         httpx.post(config.N8N_WEBHOOK_URL, json=body, timeout=60).raise_for_status()
     except httpx.HTTPError as e:
         job["stage"], job["error"] = "review", f"Sending failed: {e}"   # let the user retry
