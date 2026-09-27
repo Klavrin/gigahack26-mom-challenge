@@ -31,7 +31,8 @@ export default function Job({ id, onNew, lang }) {
   if (!job) return <div className="spinner" aria-hidden="true" />;
   if (job.stage === "failed") return <Failed onNew={onNew} error={job.error} />;
   if (job.stage === "done") return <Sent job={job} onNew={onNew} />;
-  if (job.stage === "review" || job.stage === "sending") return <Review job={job} onSent={setJob} lang={lang} />;
+  if (job.stage === "review" || (job.stage === "sending" && !job.auto_send))
+    return <Review job={job} onSent={setJob} lang={lang} />;
   return <Processing job={job} />;
 }
 
@@ -40,11 +41,11 @@ function Processing({ job }) {
   const [now, setNow] = useState(Date.now());
   useEffect(() => { const i = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(i); }, []);
 
-  const current = ["queued", "transcribing", "correcting"].includes(job.stage) ? 0 : 1;
+  const current = ["queued", "transcribing", "correcting"].includes(job.stage) ? 0 : job.stage === "sending" ? 2 : 1;
   const steps = [
     { title: t.stepListen, detail: t.stepListenDetail },
     { title: t.stepWrite, detail: t.stepWriteDetail },
-    { title: t.stepReview },
+    { title: job.auto_send ? t.stepSend : t.stepReview },
   ];
 
   return (
@@ -59,7 +60,7 @@ function Processing({ job }) {
               {i === 0 && current === 0 && job.stage !== "queued" && (
                 <div className="bar"><div style={{ width: `${Math.round((job.progress || 0) * 100)}%` }} /></div>
               )}
-              {i === 1 && current === 1 && <div className="bar indeterminate"><div /></div>}
+              {i > 0 && i === current && <div className="bar indeterminate"><div /></div>}
             </div>
           </li>
         ))}
@@ -83,6 +84,12 @@ function Sent({ job, onNew }) {
       <p className="lede">{t.sentTo(t.types[job.meeting_type] || job.meeting_type)}</p>
       {job.sent_with && (
         <p className="muted small">{t.sentWith(job.sent_with.recording, job.sent_with.transcript)}</p>
+      )}
+      {(job.sent_with?.automatic || job.meeting_type_source === "inferred") && (
+        <p className="muted small">
+          {[job.meeting_type_source === "inferred" && t.typeWasInferred,
+            job.sent_with?.automatic && t.sentAutomatically].filter(Boolean).join(" · ")}
+        </p>
       )}
       {job.audio_s > 0 && (
         <dl className="stats">

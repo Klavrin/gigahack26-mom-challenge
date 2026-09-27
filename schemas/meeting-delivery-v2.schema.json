@@ -164,8 +164,10 @@
         "status": {
           "type": "string",
           "enum": [
-            "approved"
-          ]
+            "approved",
+            "automatic"
+          ],
+          "description": "approved: a person reviewed the minutes. automatic: the uploader chose automatic sending; the email says the minutes were not reviewed."
         },
         "approved_by": {
           "type": "string",

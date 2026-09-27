@@ -44,7 +44,8 @@ export default function Settings({ settings, onChange, health, onClose }) {
           </div>
           <label className="s-row">
             <span>{t.sDefaultType}</span>
-            <select value={settings.defaultType} onChange={(e) => set({ defaultType: e.target.value })}>
+            <select value={settings.meetingType} onChange={(e) => set({ meetingType: e.target.value })}>
+              <option value="auto">{t.typeAuto}</option>
               {MEETING_TYPES.map((k) => <option key={k} value={k}>{t.types[k]}</option>)}
             </select>
           </label>

@@ -64,6 +64,7 @@ const escape = value => String(value ?? 'Nespecificat').replace(/[&<>"']/g, c =>
 const TYPES = {medical: ['Consiliu medical', '#0f766e'], executive: ['Ședință executivă', '#1d4ed8'],
   administrative: ['Ședință administrativă', '#7c3aed']};
 const [typeLabel, color] = TYPES[meeting.type];
+const automatic = approval.status === 'automatic';   // the uploader chose no review
 const day = iso => `${iso.slice(8, 10)}.${iso.slice(5, 7)}.${iso.slice(0, 4)}`;
 const time = iso => iso.slice(11, 16);
 const when = day(meeting.started_at) === day(meeting.ended_at)
@@ -92,12 +93,15 @@ const html = '<!doctype html><html lang="ro"><head><meta charset="utf-8"></head>
   `<div style="font-size:12px;letter-spacing:.06em;text-transform:uppercase;opacity:.9">${typeLabel} · ${when}</div>` +
   `<div style="font-size:22px;font-weight:600;margin-top:4px">${escape(meeting.title)}</div></td></tr>` +
   '<tr><td style="padding:4px 28px 24px">' +
+  (automatic ? '<p style="margin:18px 0 0;padding:10px 12px;background:#fef3c7;border-radius:6px;' +
+    'font-size:13px;color:#92400e">Proces-verbal generat și trimis automat, fără verificare umană.</p>' : '') +
   section('Decizii finale', decisions, true) +
   section('Atașamente', list(attached, 'ul'), true) +
   section('Note importante', list(state.important_notes.map(escape), 'ul'), state.important_notes.length) +
   '</td></tr>' +
   '<tr><td style="padding:14px 28px;background:#f9fafb;font-size:12px;color:#6b7280;line-height:1.5">' +
-  `Aprobat de <b>${escape(approval.approved_by)}</b> · ${day(approval.approved_at)} ${time(approval.approved_at)}<br>` +
+  (automatic ? '<b>Trimis automat, fără verificare umană</b>' : `Aprobat de <b>${escape(approval.approved_by)}</b>`) +
+  ` · ${day(approval.approved_at)} ${time(approval.approved_at)}<br>` +
   'Generat on-premise. Înregistrarea și transcrierea nu au părăsit rețeaua internă a spitalului.' +
   '</td></tr></table></td></tr></table></body></html>';
 return {json:{validation:'valid', delivery_id, meeting_id:meeting.id, meeting_type:meeting.type, subject, html, attachment_keys:Object.keys(binary).join(',')}, binary};

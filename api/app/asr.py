@@ -151,6 +151,19 @@ def duration_s(path: str) -> float:
         return 0.0
 
 
+def has_audio(path: str) -> bool:
+    """False for files without a sound track (a PDF or a photo renamed .mp3). Without
+    ffprobe the file is let through and transcription will tell."""
+    import subprocess
+
+    try:
+        out = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "a", "-show_entries",
+                              "stream=codec_type", "-of", "csv=p=0", path], capture_output=True, text=True)
+    except OSError:
+        return True
+    return "audio" in out.stdout
+
+
 def compress(path: str, dst: str, kbps: int) -> "subprocess.Popen":
     """Start an Ogg/Opus copy of the recording (mono, speech settings) in the background;
     about 10 MB per hour at 24 kbps. The caller waits on the returned process."""

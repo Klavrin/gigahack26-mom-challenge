@@ -61,13 +61,15 @@ def _clock(seconds: float) -> str:
 
 
 def minutes_docx(mom: dict, meeting_type: str, date: dt.date,
-                 transcript: list[dict] | None = None) -> bytes:
+                 transcript: list[dict] | None = None, approval: str = "") -> bytes:
     doc = Document()
     doc.styles["Normal"].font.name = "Calibri"
     doc.styles["Normal"].font.size = Pt(11)
     label = render.TYPE_LABELS.get(meeting_type, (meeting_type, ""))[0]
     doc.add_heading(mom.get("title") or "Proces-verbal", level=0)
     doc.add_paragraph(f"{label} · {date.isoformat()}")
+    if approval:
+        doc.add_paragraph().add_run(approval).italic = True
 
     doc.add_heading("Rezumat", level=1)
     doc.add_paragraph(mom.get("summary") or "")
@@ -127,11 +129,14 @@ def minutes_docx(mom: dict, meeting_type: str, date: dt.date,
 
 
 def payload(job: dict, mom: dict, approved_by: str, attempt: int,
-            transcript: list[dict] | None = None, recording: bytes | None = None) -> dict:
+            transcript: list[dict] | None = None, recording: bytes | None = None,
+            automatic: bool = False) -> dict:
     date = dt.date.fromisoformat(job["meeting_date"])
     now = dt.datetime.now().astimezone()
     ended_at = dt.datetime.fromtimestamp(job["created"]).astimezone()   # upload = meeting over
-    docx = minutes_docx(mom, job["meeting_type"], date, transcript)
+    approver = approved_by.strip() or "Reviewer (web app)"
+    docx = minutes_docx(mom, job["meeting_type"], date, transcript,
+                        "Trimis automat, fără verificare umană." if automatic else f"Aprobat de {approver}.")
     state = to_state(job, mom, min(ended_at, now))
     if transcript:
         state["important_notes"].append(
@@ -141,8 +146,8 @@ def payload(job: dict, mom: dict, approved_by: str, attempt: int,
         "delivery_id": f"{job['id']}-{attempt}",
         "state": state,
         "approval": {
-            "status": "approved",
-            "approved_by": approved_by.strip() or "Reviewer (web app)",
+            "status": "automatic" if automatic else "approved",   # automatic: the uploader chose no review
+            "approved_by": "Trimitere automată" if automatic else approver,
             "approved_at": now.isoformat(timespec="seconds"),
         },
         "documents": [{

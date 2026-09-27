@@ -147,7 +147,10 @@ export default function Review({ job, onSent, lang }) {
 
       <aside className="send-panel">
         <div className="panel send-card">
-          <h2 className="eyebrow">{t.sendTo}</h2>
+          <h2 className="eyebrow">
+            {t.sendTo}
+            {job.meeting_type_source === "inferred" && <span className="inferred"> · {t.inferred}</span>}
+          </h2>
           <div className="recipients" role="radiogroup" aria-label={t.sendTo}>
             {MEETING_TYPES.map((k) => (
               <label key={k} className={`recipient${type === k ? " on" : ""}`}>
@@ -166,6 +169,8 @@ export default function Review({ job, onSent, lang }) {
           ) : items.length > 0 && (
             <p className="all-set"><CircleCheck size={16} /> {t.allSet}</p>
           )}
+
+          {job.error && <p className="notice warn small" role="alert">{job.error}</p>}
 
           <label className={`field${!approver.trim() ? " empty" : ""}`}>
             <span>{t.approvedBy}</span>

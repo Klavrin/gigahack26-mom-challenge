@@ -1,6 +1,7 @@
 #!/bin/sh
-# Tries to open a connection to the internet from inside every container.
-# Expected in sealed mode: every line says BLOCKED.
+# Tries to open a connection to the internet from inside every compute and data container.
+# Expected in sealed mode: every line says BLOCKED. The gateway is deliberately not tested:
+# it is the LAN entry point (nginx, proxy rules to api/mailpit/n8n only, no code, no data).
 # Uses COMPOSE_FILE / COMPOSE_PROFILES from .env, so it checks the same stack you started.
 PY='import socket,sys
 try:
@@ -18,3 +19,4 @@ running nemo    && check nemo python -c "$PY"
 running n8n     && check n8n node -e "$NODE"
 running ollama  && check ollama bash -c 'timeout 3 bash -c "</dev/tcp/1.1.1.1/443" 2>/dev/null && echo OPEN || echo BLOCKED'
 running mailpit && check mailpit sh -c 'nc -z -w 3 1.1.1.1 443 2>/dev/null && echo OPEN || echo BLOCKED'
+running gateway && printf '%-8s %s\n' gateway "LAN entry point by design (nginx proxy only), not tested"

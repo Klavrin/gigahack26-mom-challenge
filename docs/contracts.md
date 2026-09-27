@@ -67,5 +67,7 @@ Contract v2, `schemas/meeting-delivery-v2.schema.json` (field rules in `n8n/READ
  "recording": {"filename": "<job id>-recording.ogg", "mime_type": "audio/ogg",
                "duration_s": 2525.0, "data_base64": "..."}}
 ```
-`recording` is there only when the reviewer leaves it ticked. The email shows the final
+`approval.status` is `"approved"` after the review page, `"automatic"` when the uploader left
+"Verific procesul-verbal înainte de trimitere" unticked (the email says it was not reviewed).
+`recording` is there only when the reviewer leaves it ticked (always, for automatic sending). The email shows the final
 decisions and lists the attachments; the full minutes are in the DOCX.

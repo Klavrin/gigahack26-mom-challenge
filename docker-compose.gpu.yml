@@ -28,8 +28,8 @@ services:
       ASR_MODE: ${ASR_MODE:-longform}
       ASR_BACKEND: ${ASR_BACKEND:-whisper}
       NEMOTRON_URL: ${NEMOTRON_URL:-http://nemo:8001}
-      OFFLINE: ${OFFLINE:-0}
-      HF_HUB_OFFLINE: ${OFFLINE:-0}
+      OFFLINE: ${OFFLINE:-1}
+      HF_HUB_OFFLINE: ${OFFLINE:-1}
       OLLAMA_URL: http://ollama:11434
       LLM_MODEL: ${LLM_MODEL:-qwen3:8b}
       TZ: Europe/Chisinau
@@ -60,8 +60,8 @@ services:
     environment:
       NEMO_LOAD: ${NEMO_LOAD:-asr,diar}
       HF_HOME: /models/hf
-      HF_HUB_OFFLINE: ${OFFLINE:-0}         # 1 = load weights from disk only
-      TRANSFORMERS_OFFLINE: ${OFFLINE:-0}
+      HF_HUB_OFFLINE: ${OFFLINE:-1}         # 1 = load weights from disk only
+      TRANSFORMERS_OFFLINE: ${OFFLINE:-1}
     volumes:
       - ./models/hf:/models/hf
     restart: unless-stopped

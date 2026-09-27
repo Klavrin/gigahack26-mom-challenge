@@ -46,6 +46,11 @@ assert.ok(withTasks(20).includes('cu 20 de sarcini'));
 assert.ok(!withTasks(0).includes('sarcin'));
 const noDecisions=structuredClone(sample);noDecisions.state.decisions=[];
 assert.ok(run({body:noDecisions}).json.html.includes('Nicio decizie finală înregistrată.'));
+// Automatic sending is allowed, and the email says nobody reviewed it.
+const auto=structuredClone(sample);auto.approval.status='automatic';auto.approval.approved_by='Trimitere automată';
+const autoResult=run({body:auto});
+assert.equal(autoResult.json.validation,'valid');
+assert.ok(autoResult.json.html.includes('fără verificare umană')&&!autoResult.json.html.includes('Aprobat de'));
 const escaped=structuredClone(sample);escaped.state.meeting.title='<script>alert(1)</script>';
 assert.ok(run({body:escaped}).json.html.includes('&lt;script&gt;'));
 const both=structuredClone(sample);
