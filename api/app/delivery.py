@@ -122,7 +122,7 @@ def minutes_docx(mom: dict, meeting_type: str, date: dt.date,
             p.paragraph_format.space_after = Pt(2)
 
     footer = doc.sections[0].footer.paragraphs[0]
-    footer.text = "Generat on-premise. Înregistrarea și transcrierea nu au părăsit rețeaua internă."
+    footer.text = "Generat de Synaps, on-premise. Înregistrarea și transcrierea nu au părăsit rețeaua internă."
     buf = io.BytesIO()
     doc.save(buf)
     return buf.getvalue()

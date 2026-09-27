@@ -1,7 +1,7 @@
 import { createContext, useContext } from "react";
 
 const ro = {
-  brand: "Proces-verbal",
+  brand: "Synaps",
   settings: "Setări",
   privacy: "Totul rămâne în rețeaua spitalului",
 
@@ -131,7 +131,7 @@ const ro = {
 };
 
 const en = {
-  brand: "Minutes",
+  brand: "Synaps",
   settings: "Settings",
   privacy: "Everything stays on the hospital network",
 
