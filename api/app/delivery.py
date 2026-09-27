@@ -1,8 +1,10 @@
 """Approved minutes -> n8n delivery contract v2 (schemas/meeting-delivery-v2.schema.json):
-approved state snapshot + a DOCX of the minutes. The transcript never leaves the backend."""
+approved state snapshot + a DOCX of the minutes, and the recording when the reviewer
+leaves it ticked. The transcript leaves the backend only if the reviewer attaches it."""
 import base64
 import datetime as dt
 import io
+import re
 
 from docx import Document
 from docx.shared import Pt
@@ -12,13 +14,20 @@ from . import render
 DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
 
+VOICE_LABEL = re.compile(r"^S\d+$")   # diarization labels, not people
+
+
+def _person(value) -> str | None:
+    value = (value or "").strip()
+    return value if value and not VOICE_LABEL.match(value) else None
+
+
 def _strings(items) -> list[str]:
     return [s.strip() for s in items if isinstance(s, str) and s.strip()]
 
 
 def to_state(job: dict, mom: dict, ended_at: dt.datetime) -> dict:
     started_at = ended_at - dt.timedelta(seconds=float(job.get("audio_s") or 0))
-    notes = [f"Rezumat: {mom['summary'].strip()}"] if (mom.get("summary") or "").strip() else []
     return {
         "meeting": {
             "id": job["id"],
@@ -27,25 +36,32 @@ def to_state(job: dict, mom: dict, ended_at: dt.datetime) -> dict:
             "started_at": started_at.isoformat(timespec="seconds"),
             "ended_at": ended_at.isoformat(timespec="seconds"),
         },
-        "participants": _strings(mom.get("participants", [])),
+        "summary": (mom.get("summary") or "").strip(),
+        "participants": [p for p in _strings(mom.get("participants", [])) if _person(p)],
         "topics": _strings(f"{t.get('topic', '').strip()}: {t.get('discussion', '').strip()}".strip(": ")
                            for t in mom.get("topics", [])),
         "decisions": _strings(d.get("decision", "") for d in mom.get("decisions", [])),
         "action_items": [
             {
                 "description": a["task"].strip(),
-                "owner": (a.get("owner") or "").strip() or None,
+                "owner": _person(a.get("owner")),
                 "deadline": (a.get("deadline") or a.get("deadline_text") or "").strip() or None,
                 "status": "open",
             }
             for a in mom.get("action_items", []) if (a.get("task") or "").strip()
         ],
         "open_questions": _strings(mom.get("open_questions", [])),
-        "important_notes": notes,
+        "important_notes": [],
     }
 
 
-def minutes_docx(mom: dict, meeting_type: str, date: dt.date) -> bytes:
+def _clock(seconds: float) -> str:
+    s = int(seconds)
+    return f"{s // 3600:02d}:{s % 3600 // 60:02d}:{s % 60:02d}"
+
+
+def minutes_docx(mom: dict, meeting_type: str, date: dt.date,
+                 transcript: list[dict] | None = None) -> bytes:
     doc = Document()
     doc.styles["Normal"].font.name = "Calibri"
     doc.styles["Normal"].font.size = Pt(11)
@@ -88,6 +104,21 @@ def minutes_docx(mom: dict, meeting_type: str, date: dt.date) -> bytes:
         for q in mom["open_questions"]:
             doc.add_paragraph(q, style="List Bullet")
 
+    if transcript:
+        # Opt-in at review time only: the transcript holds everything that was said,
+        # patient details included.
+        doc.add_page_break()
+        doc.add_heading("Anexă: Transcriere", level=1)
+        doc.add_paragraph().add_run("Transcriere automată (poate conține erori de recunoaștere). "
+                                    "Format: [ora · limba · vorbitor] text.").italic = True
+        for seg in transcript:
+            p = doc.add_paragraph()
+            who = f" · {seg['speaker']}" if seg.get("speaker") else ""
+            meta = p.add_run(f"[{_clock(seg.get('start', 0))} · {seg.get('lang', '')}{who}] ")
+            meta.font.size = Pt(9)
+            p.add_run(seg.get("text", ""))
+            p.paragraph_format.space_after = Pt(2)
+
     footer = doc.sections[0].footer.paragraphs[0]
     footer.text = "Generat on-premise. Înregistrarea și transcrierea nu au părăsit rețeaua internă."
     buf = io.BytesIO()
@@ -95,15 +126,20 @@ def minutes_docx(mom: dict, meeting_type: str, date: dt.date) -> bytes:
     return buf.getvalue()
 
 
-def payload(job: dict, mom: dict, approved_by: str, attempt: int) -> dict:
+def payload(job: dict, mom: dict, approved_by: str, attempt: int,
+            transcript: list[dict] | None = None, recording: bytes | None = None) -> dict:
     date = dt.date.fromisoformat(job["meeting_date"])
     now = dt.datetime.now().astimezone()
     ended_at = dt.datetime.fromtimestamp(job["created"]).astimezone()   # upload = meeting over
-    docx = minutes_docx(mom, job["meeting_type"], date)
-    return {
+    docx = minutes_docx(mom, job["meeting_type"], date, transcript)
+    state = to_state(job, mom, min(ended_at, now))
+    if transcript:
+        state["important_notes"].append(
+            "Transcrierea completă este anexată la procesul-verbal (DOCX), la cererea celui care a aprobat.")
+    body = {
         "schema_version": "2",
         "delivery_id": f"{job['id']}-{attempt}",
-        "state": to_state(job, mom, min(ended_at, now)),
+        "state": state,
         "approval": {
             "status": "approved",
             "approved_by": approved_by.strip() or "Reviewer (web app)",
@@ -115,3 +151,11 @@ def payload(job: dict, mom: dict, approved_by: str, attempt: int) -> dict:
             "data_base64": base64.b64encode(docx).decode("ascii"),
         }],
     }
+    if recording:
+        body["recording"] = {
+            "filename": f"{job['id']}-recording.ogg",
+            "mime_type": "audio/ogg",
+            "duration_s": job["recording"]["duration_s"],
+            "data_base64": base64.b64encode(recording).decode("ascii"),
+        }
+    return body

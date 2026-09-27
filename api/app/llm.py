@@ -139,9 +139,19 @@ def _spoken(phrase: str, transcript_norm: str) -> bool:
     return bool(words) and sum(w in transcript_norm for w in words) / len(words) >= 0.6
 
 
+def _spoken_dates(transcript: str, meeting_date: dt.date) -> set[str]:
+    """Every date some word or short phrase of the transcript resolves to, in any language:
+    the model may write "până joi" for a speaker who said "by Thursday" or "к четвергу"."""
+    # "trei luni" is three months, not Monday: drop such phrases before looking at windows.
+    words = deadlines.MONTHS_NOT_MONDAY.sub(" ", deadlines.normalize(transcript)).split()
+    phrases = [" ".join(words[max(0, i - 1):i + n]) for i in range(len(words)) for n in (2, 3)]
+    return {d for d in map(lambda x: deadlines.resolve(x, meeting_date), phrases) if d}
+
+
 def _clean(mom: dict, meeting_date: dt.date, transcript: str) -> dict:
     """Deterministic post-checks on the model output."""
     said = deadlines.normalize(transcript)
+    said_dates = None   # computed only if needed
     label = re.compile(r"^S\d+$")
     names = {sp["label"].strip(): sp["name"].strip()
              for sp in mom.get("speakers", [])
@@ -158,8 +168,16 @@ def _clean(mom: dict, meeting_date: dt.date, transcript: str) -> dict:
         a["owner"] = owner if not owner or label.match(owner) or _grounded(owner, said) else ""
         # No deadline unless one was actually said: the reviewer can still add one.
         spoken = (a.get("deadline_text") or "").strip()
-        if not spoken or not _spoken(spoken, said):
-            a["deadline_text"], a["deadline"] = "", ""
+        if spoken and not _spoken(spoken, said):
+            # translated by the model? keep it only if something said resolves to the same date
+            said_dates = said_dates if said_dates is not None else _spoken_dates(transcript, meeting_date)
+            if deadlines.resolve(spoken, meeting_date) not in said_dates:
+                spoken = ""
+        if not spoken:
+            # the model sometimes writes the deadline into the task ("... până la joi")
+            from_task = deadlines.resolve(a.get("task", ""), meeting_date)
+            said_dates = said_dates if said_dates is not None else _spoken_dates(transcript, meeting_date)
+            a["deadline_text"], a["deadline"] = "", from_task if from_task in said_dates else ""
             continue
         # the spoken expression wins over the model's own date arithmetic
         resolved = deadlines.resolve(spoken, meeting_date)

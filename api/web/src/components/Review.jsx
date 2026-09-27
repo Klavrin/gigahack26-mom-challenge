@@ -15,6 +15,8 @@ export default function Review({ job, onSent, lang }) {
   const [error, setError] = useState(null);
   const [transcriptAt, setTranscriptAt] = useState(null);   // null = closed, -1 = open at top
   const [approver, setApprover] = useState(loadApprover);    // who signs off; remembered per browser
+  const [attachTranscript, setAttachTranscript] = useState(false);   // opt-in, never remembered
+  const [attachAudio, setAttachAudio] = useState(true);   // on by default; untick for sensitive meetings
 
   useEffect(() => {
     Promise.all([api.mom(job.id), api.segments(job.id)]).then(([m, s]) => {
@@ -25,7 +27,11 @@ export default function Review({ job, onSent, lang }) {
   }, [job.id]);
 
   const missing = items.reduce((n, a) => n + !a.owner.trim() + !a.deadline, 0);
-  const people = useMemo(() => mom?.participants || [], [mom]);
+  // Voice labels (S1, S2 from diarization) are not people: never suggest them as owners.
+  const people = useMemo(() => (mom?.participants || []).filter((p) => !/^S\d+$/.test(p.trim())), [mom]);
+  // A deadline before the meeting (the browser happily completes "4" to 2004) is a typo.
+  const minDeadline = job.meeting_date;
+  const maxDeadline = `${Number(job.meeting_date.slice(0, 4)) + 1}${job.meeting_date.slice(4)}`;
 
   if (!mom) return <div className="spinner" aria-hidden="true" />;
 
@@ -48,7 +54,10 @@ export default function Review({ job, onSent, lang }) {
     setError(null);
     saveApprover(name);
     try {
-      onSent(await api.send(job.id, { meeting_type: type, action_items: items, approved_by: name }));
+      onSent(await api.send(job.id, {
+        meeting_type: type, action_items: items, approved_by: name,
+        attach_transcript: attachTranscript, attach_audio: attachAudio && Boolean(job.recording),
+      }));
     } catch (e) {
       setError(`${t.sendFailed} ${e.message}`);
       setSending(false);
@@ -106,7 +115,7 @@ export default function Review({ job, onSent, lang }) {
                       </label>
                       <label className={`field${!v.deadline ? " empty" : ""}`}>
                         <span>{t.deadline}</span>
-                        <input type="date" value={v.deadline} disabled={sending}
+                        <input type="date" value={v.deadline} disabled={sending} min={minDeadline} max={maxDeadline}
                                onChange={(e) => update(i, "deadline", e.target.value)} />
                         {a.deadline_text && <small>{t.spoken} „{a.deadline_text}”</small>}
                       </label>
@@ -163,6 +172,34 @@ export default function Review({ job, onSent, lang }) {
             <input id="approver" value={approver} placeholder={t.approverPlaceholder} autoComplete="name"
                    disabled={sending} onChange={(e) => setApprover(e.target.value)}
                    onKeyDown={(e) => e.key === "Enter" && send()} />
+          </label>
+
+          {job.recording ? (
+            <label className="attach-option">
+              <input type="checkbox" checked={attachAudio} disabled={sending}
+                     onChange={(e) => setAttachAudio(e.target.checked)} />
+              <span>
+                {t.attachAudio(clock(job.recording.duration_s), (job.recording.bytes / 1e6).toFixed(1))}
+                <small>{t.attachAudioHint}</small>
+              </span>
+            </label>
+          ) : (
+            <label className="attach-option unavailable">
+              <input type="checkbox" checked={false} disabled />
+              <span>
+                {t.audioUnavailable}
+                <small>{t.audioUnavailableHint}</small>
+              </span>
+            </label>
+          )}
+
+          <label className="attach-option">
+            <input type="checkbox" checked={attachTranscript} disabled={sending}
+                   onChange={(e) => setAttachTranscript(e.target.checked)} />
+            <span>
+              {t.attachTranscript}
+              <small>{t.attachTranscriptHint}</small>
+            </span>
           </label>
 
           <button className="btn primary block" onClick={send} disabled={sending || !approver.trim()}>

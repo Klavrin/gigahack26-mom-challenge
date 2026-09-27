@@ -112,7 +112,7 @@ record on another day.
    - Point at the ceftriaxone owner: **Ana Ceban**, the model caught the change.
    - Type your name in **"Aprobat de"**.
 5. **Approve (20 s).**
-   - Open Mailpit: the email reached the **medical** distribution list with the **DOCX** attached.
+   - Open Mailpit: the email reached the **medical** distribution list. The body lists the **final decisions**; the **DOCX** (full PV) and the **recording** (.ogg) are attached.
    - Optionally show the n8n workflow routing by meeting type.
 
 **Backups:**

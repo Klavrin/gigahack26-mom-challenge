@@ -81,8 +81,12 @@ N8N_WEBHOOK_URL = _env("N8N_WEBHOOK_URL", "http://localhost:5678/webhook/mom")
 
 DATA_DIR = Path(_env("DATA_DIR", "/data"))
 GLOSSARY_DIR = Path(_env("GLOSSARY_DIR", "/glossary"))
-# Privacy default: raw audio is deleted as soon as it has been transcribed.
+# Privacy default: raw audio is deleted as soon as it has been transcribed, and the
+# compressed copy made for the email as soon as the email has gone.
 KEEP_AUDIO = _flag("KEEP_AUDIO")
+# The email can carry the recording (Ogg/Opus) next to the minutes. The n8n contract
+# accepts at most 15 MiB, so the bitrate is lowered for long meetings to fit.
+RECORDING_MAX_MB = 15
 # 1 = never touch the network for model files (demo / hospital mode).
 OFFLINE = _flag("OFFLINE")
 # 1 = no ASR/LLM calls at all; serve canned fixtures (frontend/backend dev without a GPU).

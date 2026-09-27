@@ -52,6 +52,11 @@
           ],
           "additionalProperties": false
         },
+        "summary": {
+          "type": "string",
+          "maxLength": 20000,
+          "description": "Optional: shown first in the email. Older senders put it in important_notes as 'Rezumat: ...'."
+        },
         "participants": {
           "type": "array",
           "items": {
@@ -211,6 +216,39 @@
         ],
         "additionalProperties": false
       }
+    },
+    "recording": {
+      "type": "object",
+      "description": "Optional: the meeting recording (Ogg/Opus), attached to the email next to the minutes when the reviewer leaves it ticked. Maximum 15 MiB decoded.",
+      "properties": {
+        "filename": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,119}\\.ogg$"
+        },
+        "mime_type": {
+          "type": "string",
+          "enum": [
+            "audio/ogg"
+          ]
+        },
+        "duration_s": {
+          "type": "number",
+          "minimum": 0
+        },
+        "data_base64": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 20971520,
+          "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$"
+        }
+      },
+      "required": [
+        "filename",
+        "mime_type",
+        "duration_s",
+        "data_base64"
+      ],
+      "additionalProperties": false
     }
   },
   "required": [
@@ -223,5 +261,5 @@
   "additionalProperties": false,
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Approved meeting delivery v2",
-  "description": "Final approved snapshot; transcript remains in backend. Maximum total decoded documents: 5 MiB. Approval must follow meeting end."
+  "description": "Final approved snapshot. The recording and the transcript leave the backend only when the reviewer attaches them. Maximum decoded size: documents 5 MiB in total, recording 15 MiB. Approval must follow meeting end."
 }

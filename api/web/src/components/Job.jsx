@@ -81,6 +81,9 @@ function Sent({ job, onNew }) {
       <div className="sent-check" aria-hidden="true"><Check size={30} strokeWidth={2.5} /></div>
       <h1 className="display small-display">{t.sentTitle}</h1>
       <p className="lede">{t.sentTo(t.types[job.meeting_type] || job.meeting_type)}</p>
+      {job.sent_with && (
+        <p className="muted small">{t.sentWith(job.sent_with.recording, job.sent_with.transcript)}</p>
+      )}
       {job.audio_s > 0 && (
         <dl className="stats">
           <div><dt>{t.statAudio}</dt><dd>{clock(job.audio_s)}</dd></div>

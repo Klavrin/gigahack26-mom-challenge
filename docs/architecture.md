@@ -25,7 +25,7 @@ flowchart LR
     api -- "audio" --> asr
     api -- "audio (≤ 2 h)" --> nemo
     api -- "transcript" --> llm
-    api -- "approved snapshot<br/>+ DOCX (contract v2)" --> n8n
+    api -- "approved snapshot<br/>+ DOCX + audio (contract v2)" --> n8n
     n8n -- "SMTP" --> mail
     mail -. "email to the<br/>distribution list" .-> user
 ```
@@ -59,13 +59,13 @@ sequenceDiagram
         A->>D: POST /diarize
         D-->>A: turns [start, end, S1…S4]
     end
-    A->>A: attach speakers by time overlap, delete the audio
+    A->>A: attach speakers by time overlap, delete the audio (keep a compressed copy for the email)
     A->>L: transcript + rules + JSON schema
     L-->>A: title, summary, decisions, action items, open questions
     A->>A: deadlines by code, drop invented names, unload the LLM
     A-->>U: draft minutes: review page with quotes
     U->>A: fix owners / deadlines, "Aprobat de", Approve
-    A->>N: POST /webhook/mom (schema v2 + DOCX)
+    A->>N: POST /webhook/mom (schema v2 + DOCX + .ogg)
     N->>N: validate, switch on medical / executive / administrative
     N->>M: email to that distribution list
 ```
@@ -107,7 +107,7 @@ flowchart LR
     c2 --> mom
     c3 --> mom
     mom --> rev["review page<br/>(a person approves)"]
-    rev --> docx["DOCX + v2 payload → n8n"]
+    rev --> docx["DOCX + audio + v2 payload → n8n"]
 ```
 
 The LLM only reads and summarises. Dates, names and the delivery format are checked by

@@ -69,6 +69,8 @@ class SendRequest(BaseModel):
     action_items: list[ActionItemEdit] = []
     meeting_type: str | None = None   # distribution list, chosen at review time
     approved_by: str = ""             # reviewer name for the approval record
+    attach_transcript: bool = False   # opt-in: transcript as an annex of the DOCX
+    attach_audio: bool = False        # the compressed recording as an email attachment
 
 
 @app.post("/api/jobs/{job_id}/send")
@@ -78,7 +80,7 @@ def job_send(job_id: str, body: SendRequest):
         raise HTTPException(404)
     try:
         return pipeline.send(job, [a.model_dump() for a in body.action_items], body.meeting_type,
-                             body.approved_by)
+                             body.approved_by, body.attach_transcript, body.attach_audio)
     except ValueError as e:
         raise HTTPException(400, str(e))
     except httpx.HTTPError as e:
@@ -202,7 +204,8 @@ def health():
 
 @app.get("/")
 def index():
-    return FileResponse(STATIC / "index.html")
+    # Always revalidate: after a rebuild the page must load the new bundle, not a cached one.
+    return FileResponse(STATIC / "index.html", headers={"Cache-Control": "no-cache"})
 
 
 app.mount("/static", StaticFiles(directory=STATIC, check_dir=False), name="static")

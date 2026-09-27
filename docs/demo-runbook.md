@@ -67,7 +67,7 @@ Follow the flow in [demo-script.md](demo-script.md#demo-flow-on-stage-3-min):
 4. review with quotes and the changed owner
 5. "Aprobat de"
 6. Approve
-7. the email with the DOCX in Mailpit
+7. the email in Mailpit: the final decisions, with the DOCX and the recording attached
 
 | Open in the browser | What it shows |
 |---|---|

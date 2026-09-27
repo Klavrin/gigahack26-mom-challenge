@@ -15,6 +15,7 @@ import httpx
 from . import asr, config, delivery, llm, merge, mock, nemo_client, render
 
 STAGES = ["queued", "transcribing", "correcting", "extracting", "review", "sending", "done"]
+RECORDING = "recording.ogg"   # compressed copy of the audio for the email
 
 _jobs: dict[str, dict] = {}
 _queue: "queue.Queue[str]" = queue.Queue()
@@ -64,9 +65,11 @@ def run(job: dict) -> None:
         return time.time()
 
     t = stage("transcribing")
+    recording = _start_recording(job)   # CPU work, done while the GPU transcribes
     segments, turns = _transcribe(job)
     job["audio_s"] = round(segments[-1]["end"], 1) if segments else 0.0
     job["timings"]["asr_s"] = round(time.time() - t, 1)
+    _finish_recording(job, recording)
     if not config.KEEP_AUDIO:
         Path(job["audio"]).unlink(missing_ok=True)
     _write(jid, "diarization.json", json.dumps(turns, indent=1))
@@ -103,7 +106,7 @@ def recent(limit: int = 10) -> list[dict]:
 
 
 def send(job: dict, action_items: list[dict], meeting_type: str | None = None,
-         approved_by: str = "") -> dict:
+         approved_by: str = "", attach_transcript: bool = False, attach_audio: bool = False) -> dict:
     """Apply the reviewer's edits (owners, deadlines, distribution list), re-render,
     deliver through n8n."""
     jid = job["id"]
@@ -120,7 +123,11 @@ def send(job: dict, action_items: list[dict], meeting_type: str | None = None,
         for item, edit in zip(items, action_items):
             deadline = edit["deadline"].strip()
             if deadline:
-                dt.date.fromisoformat(deadline)   # ValueError -> 400
+                d = dt.date.fromisoformat(deadline)   # ValueError -> 400
+                if not date <= d <= (date + dt.timedelta(days=366)):
+                    raise ValueError(f"Termenul {d.strftime('%d.%m.%Y')} trebuie să fie între data ședinței "
+                                     f"și un an după ({date.strftime('%d.%m.%Y')} - "
+                                     f"{(date + dt.timedelta(days=366)).strftime('%d.%m.%Y')}).")
             item["owner"], item["deadline"] = edit["owner"].strip(), deadline
         if meeting_type:
             job["meeting_type"] = meeting_type   # the reviewer picks who receives it
@@ -132,14 +139,23 @@ def send(job: dict, action_items: list[dict], meeting_type: str | None = None,
     t = time.time()
     try:
         job["attempts"] = job.get("attempts", 0) + 1
-        body = delivery.payload(job, mom, approved_by, job["attempts"])   # n8n contract v2
+        transcript = recording = None
+        if attach_transcript:
+            transcript = json.loads((job_dir(jid) / "segments.json").read_text(encoding="utf-8"))
+        if attach_audio and job.get("recording"):
+            recording = (job_dir(jid) / RECORDING).read_bytes()
+        body = delivery.payload(job, mom, approved_by, job["attempts"], transcript, recording)   # n8n contract v2
         httpx.post(config.N8N_WEBHOOK_URL, json=body, timeout=60).raise_for_status()
     except httpx.HTTPError as e:
         job["stage"], job["error"] = "review", f"Sending failed: {e}"   # let the user retry
         raise
     job["timings"]["send_s"] = round(time.time() - t, 1)
+    job["sent_with"] = {"recording": recording is not None, "transcript": transcript is not None}
     job["timings"]["review_s"] = round(t - job["review_since"], 1)
     _write(jid, "timings.json", json.dumps(job["timings"], indent=1))
+    if not config.KEEP_AUDIO:
+        (job_dir(jid) / RECORDING).unlink(missing_ok=True)   # it only existed for this email
+        job.pop("recording", None)
     job["stage"] = "done"
     return job
 
@@ -170,6 +186,44 @@ def _transcribe(job: dict) -> tuple[list[dict], list[dict]]:
             except Exception as e:
                 job["warning"] = f"diarization failed: {e}"
     return merge.assign_speakers(segments, turns), turns
+
+
+def _kbps(seconds: float) -> int | None:
+    """Bitrate that keeps the recording under the attachment limit: 24 kbps up to
+    ~1 h 20 min, lower for longer meetings, None past ~5 h 30 min."""
+    kbps = min(24, int(config.RECORDING_MAX_MB * 8 * 1024 * 1024 * 0.95 / seconds / 1000))
+    return kbps if kbps >= 6 else None
+
+
+def _start_recording(job: dict):
+    """Ogg/Opus copy of the recording for the email. Browser recordings (WebM) carry no
+    length, so those start at 24 kbps and _finish_recording shrinks them if needed."""
+    seconds = asr.duration_s(job["audio"])
+    kbps = _kbps(seconds) if seconds else 24
+    if not kbps:
+        return None
+    try:
+        return asr.compress(job["audio"], str(job_dir(job["id"]) / RECORDING), kbps)
+    except OSError:   # no ffmpeg: the email simply goes out without the recording
+        return None
+
+
+def _finish_recording(job: dict, proc) -> None:
+    if not proc:
+        return
+    _, err = proc.communicate()
+    path = job_dir(job["id"]) / RECORDING
+    limit = config.RECORDING_MAX_MB * 1024 * 1024
+    seconds = 0.0 if proc.returncode else asr.duration_s(str(path))   # an Ogg always knows its length
+    if seconds and path.stat().st_size > limit and (kbps := _kbps(seconds)):
+        proc = asr.compress(job["audio"], str(path), kbps)   # long browser recording: once more, smaller
+        _, err = proc.communicate()
+    size = path.stat().st_size if path.exists() else 0
+    if proc.returncode or not seconds or not size or size > limit:
+        print(f"no recording for the email (ffmpeg {proc.returncode}, {size} bytes): {err.strip()[:300]}")
+        path.unlink(missing_ok=True)
+        return
+    job["recording"] = {"duration_s": round(seconds, 1), "bytes": size}
 
 
 def _worker() -> None:
