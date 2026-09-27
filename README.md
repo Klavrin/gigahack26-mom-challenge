@@ -1,332 +1,418 @@
-# On-premise Minutes of Meeting (GigaHack 2026 · Medpark challenge)
+# On-Premise Minutes of Meeting
 
-Audio of a hospital meeting (Romanian with Russian/English code-switching and medical
-vocabulary) → transcript → structured minutes (decisions, action items, owners,
-deadlines) → **human review** → emailed to the right distribution list.
-**Runs 100% on the hospital LAN — no cloud calls.**
+> GigaHack 2026 · Medpark challenge
 
-Two roles, like a real hospital: thin clients on staff laptops, one GPU server in the
-server room.
+Turn a hospital meeting recording into a multilingual transcript and structured minutes
+with decisions, action items, owners, and deadlines—then review and deliver the result by
+email. The runtime can stay entirely inside the hospital network: no cloud transcription,
+cloud LLM, or external workflow service is required.
 
-**Diagrams** (stack, one meeting start to finish, ASR internals, deployment modes):
-[docs/architecture.md](docs/architecture.md). **Demo script with answer key:**
-[docs/demo-script.md](docs/demo-script.md).
+The solution is designed for Romanian meetings that may switch into Russian or English and
+contain medical vocabulary. It combines a React web interface, FastAPI processing pipeline,
+local speech recognition, a local LLM, n8n routing, and SMTP delivery.
 
+## What is included
+
+- Browser recording and drag-and-drop upload
+- Romanian/Russian/English speech recognition with timestamps
+- Optional speaker diarization for up to four speakers
+- Structured minutes: summary, topics, decisions, tasks, owners, and deadlines
+- Evidence quotes linked back to the corresponding transcript position
+- Automatic delivery or an optional human review and approval step
+- DOCX generation, optional transcript annex, and optional compressed recording attachment
+- Medical, executive, and administrative distribution routes
+- Persistent job history and recovery after service restarts
+- Mock mode for a complete demo without a GPU or model downloads
+- Sealed offline mode with a test that verifies compute containers cannot reach the internet
+
+## Important status and safety note
+
+This repository is a hackathon prototype, not a certified medical device or a production
+hospital deployment. Generated transcripts and minutes can contain errors and should be
+reviewed before they are used for clinical, legal, or operational decisions.
+
+The web application and webhook do not currently provide user authentication. Keep them on
+a trusted, access-controlled network and do not expose their ports to the public internet.
+Mailpit is a local email catcher used for the demo; replace it and review the security model
+before integrating a real hospital mail system.
+
+## Architecture at a glance
+
+```text
+Doctor / secretary
+        │ record, upload, review
+        ▼
+FastAPI + React (:8000)
+        ├── audio ──────► Whisper ASR on GPU (:8000)
+        ├── transcript ─► Ollama / Qwen on GPU (:11434)
+        ├── audio ──────► optional NeMo diarization (:8001 in-container)
+        └── approved snapshot + DOCX ─► n8n (:5678) ─► SMTP / Mailpit (:8025)
 ```
- LAPTOP (no models)                                   GPU NODE (hospital LAN)
- ┌──────────────────────────────┐   audio  ┌───────────────────────────────┐
- │ Browser: upload / Rec,       │ ───────▶ │ api image as ASR worker       │
- │ review & edit, approve       │ POST     │ faster-whisper: VAD → per-    │
- │ FastAPI api (job queue,      │ /api/asr │ utterance ro/ru/en → prompt   │
- │ render)                      │ ◀─────── ├───────────────────────────────┤
- │ n8n (route by type)          │ ───────▶ │ Ollama · Qwen3 (JSON schema)  │
- │ Mailpit (hospital SMTP)      │ :11434   └───────────────────────────────┘
- └──────────────────────────────┘
-```
 
-`MOCK_MODELS=1` (the laptop default) swaps ASR and LLM for canned fixtures, so the web
-page, review step and email flow work with no GPU node at all.
+The laptop stack contains the web app, API, job queue, n8n, and Mailpit. The GPU stack
+contains Whisper, Ollama, and optional NVIDIA NeMo services. Both stacks may run on one GPU
+computer or on two machines connected through a private LAN.
 
-## Why this handles code-switching
+For detailed diagrams and service flows, see [docs/architecture.md](docs/architecture.md).
 
-Stock Whisper picks **one language per 30 s window**, so Russian inside a Romanian
-meeting gets translated or garbled. We:
+## Quick start: demo without a GPU
 
-1. split audio at pauses with **Silero VAD** into utterance-sized chunks (≤20 s),
-2. detect the language **per chunk**, restricted to `ro/ru/en` (short or low-confidence chunks keep the running language),
-3. transcribe each chunk with that language forced, a **medical glossary prompt** in that language,
-   `condition_on_previous_text=False` (no repetition loops) and a filter for known
-   Whisper hallucinations ("Subtitrare…", "Продолжение следует").
-4. optional: a local-LLM **glossary correction pass** that fixes only medical-term spelling and
-   rejects any line it rewrote too much (`CORRECT_TRANSCRIPT=1`).
+This is the recommended first run. Mock mode exercises upload, progress, review, routing,
+DOCX creation, and email delivery using canned transcript and minutes data. It does **not**
+transcribe the uploaded audio.
 
-`ASR_MODE=plain` runs stock Whisper so we can measure the difference (see *Evaluation*).
+### Requirements
 
-## Run it
+- Git
+- Docker Desktop, or Docker Engine with the Compose plugin
 
-Which machine runs what:
+### 1. Create the local configuration
 
-| | Laptop (`docker-compose.yml`) | GPU node (`docker-compose.gpu.yml`) |
-|---|---|---|
-| Services | api + web page, n8n, Mailpit | Ollama (Qwen3), api image as ASR worker |
-| Hardware | any; Docker Desktop | NVIDIA GPU, Docker with NVIDIA runtime |
-| Models | none | Whisper + Qwen3 under `./models` |
-
-**Laptop, mock mode** (works alone):
+macOS, Linux, or Git Bash:
 
 ```bash
-cp .env.example .env              # MOCK_MODELS=1
+cp .env.example .env
+```
+
+Windows PowerShell:
+
+```powershell
+Copy-Item .env.example .env
+```
+
+Leave `MOCK_MODELS=1` for this first run. Placeholder GPU URLs in `.env` are ignored in
+mock mode.
+
+### 2. Start the laptop stack
+
+```bash
 docker compose up -d --build
 ```
 
-- Web app: http://localhost:8000 (settings icon → which node does ASR / LLM / n8n)
-- Inbox (Mailpit): http://localhost:8025
-- n8n editor: http://localhost:5678 (workflow *MoM routing & delivery* is imported and active)
+The first startup imports and activates the n8n workflow and its demo SMTP credential.
 
-**GPU node** (teammate's machine, same repo checkout):
+### 3. Open the application
+
+| Service | URL | Purpose |
+|---|---|---|
+| Web application | http://localhost:8000 | Upload, record, monitor, review, and send |
+| Mailpit | http://localhost:8025 | Inspect locally delivered demo email |
+| n8n | http://localhost:5678 | Inspect workflow executions and routing |
+| Health endpoint | http://localhost:8000/api/health | Check ASR, LLM, and n8n status |
+
+### 4. Try one meeting
+
+1. Open the web application.
+2. For a first test, enable **“Verific procesul-verbal înainte de trimitere”** so the job
+   waits for review. If it is left disabled, delivery is automatic.
+3. Drop an audio/video file onto the page or use **Record**.
+4. Follow the progress through transcription and minutes generation.
+5. Review decisions and tasks. Edit owners or deadlines if needed.
+6. Enter the reviewer name, choose optional attachments, and select
+   **Aprobați și trimiteți**.
+7. Open Mailpit and inspect the message and DOCX attachment.
+
+The page can be closed while a job runs. Completed and interrupted jobs are restored from
+`data/jobs/` and appear under **Recente** after a restart.
+
+## Delivery behavior
+
+There are two supported paths:
+
+| Mode | How to select it | Result |
+|---|---|---|
+| Automatic | Leave the review checkbox disabled | Minutes are sent when processing finishes and marked as not human-reviewed. |
+| Human review | Enable the review checkbox before upload | Processing stops at a draft until a reviewer edits, approves, and sends it. |
+
+If no meeting type is selected, the LLM infers `medical`, `executive`, or
+`administrative` from the content. The selected type controls the n8n distribution route.
+The local demo uses synthetic `@medpark.local` recipients defined in the workflow.
+
+## Real local-AI deployment
+
+### Hardware and software
+
+- Laptop/coordinator: any machine capable of running the laptop Docker stack
+- GPU node: NVIDIA GPU, NVIDIA driver, Docker, and NVIDIA Container Toolkit
+- Private LAN connection between the two machines
+- Approximately 10 GB or more of free space for model weights, depending on enabled models
+
+The current defaults are Whisper `large-v3` and Ollama model `qwen3:8b`. Model names and
+measured demo configurations may differ; the value in `.env` must match the model actually
+downloaded into Ollama.
+
+### A. Start the GPU node
+
+Clone this repository on the GPU machine and create `.env`. Keep `OFFLINE=1`; the download
+script temporarily enables network access only for model acquisition.
 
 ```bash
-cp .env.example .env              # set LLM_MODEL to the Qwen3 tag you use
 docker compose -f docker-compose.gpu.yml up -d --build
-sh scripts/pull-models.sh         # once, online: Qwen3 + Whisper weights → ./models
+sh scripts/pull-models.sh
 ```
 
-Then allow ports **8000** (ASR worker) and **11434** (Ollama) from the laptop's IP only:
+The helper scripts require a POSIX shell. On Windows, run them from Git Bash or WSL.
+
+The GPU stack exposes:
+
+- `8000`: FastAPI ASR worker
+- `11434`: Ollama
+- `8002`: optional NeMo service when the `nemo` profile is enabled
+
+Restrict these ports to the coordinator's IP. For example, on the Windows GPU node, run in
+an elevated PowerShell:
 
 ```powershell
-# Windows GPU node (admin PowerShell)
-New-NetFirewallRule -DisplayName "MoM GPU node" -Direction Inbound -Protocol TCP -LocalPort 8000,11434 -RemoteAddress <LAPTOP_IP> -Action Allow
+New-NetFirewallRule -DisplayName "MoM GPU node" -Direction Inbound -Protocol TCP `
+  -LocalPort 8000,11434 -RemoteAddress <LAPTOP_IP> -Action Allow
 ```
+
+### B. Verify the GPU node from the laptop
+
+From Git Bash, WSL, macOS, or Linux:
 
 ```bash
-# Linux GPU node — Docker-published ports bypass ufw, so filter in DOCKER-USER
-sudo iptables -I DOCKER-USER -p tcp -m multiport --dports 8000,11434 ! -s <LAPTOP_IP> -j DROP
+sh scripts/smoke-gpu-node.sh <GPU_NODE_IP> data/<recording>.ogg
 ```
 
-**Connect the laptop to the GPU node:**
+The audio argument is optional. Without it, the script still verifies the ASR health route,
+the installed Ollama models, and a small JSON LLM response.
+
+### C. Point the laptop stack at the GPU node
+
+Edit the laptop's `.env`:
+
+```dotenv
+MOCK_MODELS=0
+ASR_URL=http://<GPU_NODE_IP>:8000
+OLLAMA_URL=http://<GPU_NODE_IP>:11434
+LLM_MODEL=qwen3:8b
+```
+
+Then recreate the laptop services:
 
 ```bash
-sh scripts/smoke-gpu-node.sh <GPU_NODE_IP> data/<some-recording>.ogg
-# then in .env: MOCK_MODELS=0, ASR_URL=http://<GPU_NODE_IP>:8000, OLLAMA_URL=http://<GPU_NODE_IP>:11434
-docker compose up -d
+docker compose up -d --build
 ```
 
-**Offline demo:** `OFFLINE=1` is the default (models load from disk only). Keep both
-machines on the same switch/hotspot with no internet uplink, upload.
+Open `/api/health` or the settings panel. ASR, LLM, and n8n should all report `up` before
+processing real recordings.
 
-## The web app
+## One-computer GPU demo
 
-Built for doctors, not IT: the home screen is one drop zone and one *Record* button.
-By default the minutes go out on their own once ready, to the list the content calls for
-(medical / executive / administrative), marked as not reviewed; tick *Verific procesul-verbal
-înainte de trimitere* before uploading to approve them on the review page first.
-Everything technical (which node does ASR/LLM, mock mode, links to Mailpit and n8n,
-interface language RO/EN, default distribution list) is behind the settings icon,
-which shows a small dot when something needs attention.
+Both Compose stacks can run as one project on a single NVIDIA GPU computer. In `.env`, set:
 
-- **Drop or record.** A file can be dropped anywhere on the page; its modified date is
-  used as the meeting date. Recording has a live level meter, pause, and keeps the
-  screen awake.
-- **Plain-language progress** (*Transcriem · Redactăm · Gata de verificat*); the page can
-  be closed and the draft reopened from *Recente*.
-- **Review like a document.** Every decision and task shows the quote it came from;
-  clicking the quote opens the transcript at that moment. The transcript shows the
-  ro/ru/en share of the meeting.
-- **Distribution list chosen at the end**, next to the send button, with who is on each list.
+```dotenv
+COMPOSE_FILE=docker-compose.yml:docker-compose.gpu.yml
+COMPOSE_PATH_SEPARATOR=:
+MOCK_MODELS=0
+ASR_URL=http://asr:8000
+OLLAMA_URL=http://ollama:11434
+ASR_PORT=8001
+LLM_MODEL=qwen3:8b
+```
 
-Frontend development (Node 20.19+), against a backend on :8000:
+Start, download models once, and verify GPU access:
 
 ```bash
-cd api/web && npm install && npm run dev      # http://localhost:5173
+docker compose up -d --build
+sh scripts/pull-models.sh
+sh scripts/gpu-check.sh
 ```
 
-The Docker image builds the app itself (multi-stage), so neither machine needs Node.
+For the exact configuration used by the live demonstration, including optional speaker
+diarization, follow [docs/demo-runbook.md](docs/demo-runbook.md).
 
-## Review before sending
+## Optional NeMo services
 
-Processing stops at a **draft**. Owners and deadlines are editable (empty ones are
-highlighted and counted next to the send button; the spoken deadline is shown under the
-resolved date). Nothing is emailed until someone clicks *Aprobați și trimiteți*
-(`POST /api/jobs/{id}/send`). The model's original draft is kept as `mom_draft.json`.
+The `nemo` Compose profile provides:
 
-## Privacy / security
+- NVIDIA Nemotron 3.5 ASR as an alternative backend
+- Streaming Sortformer speaker diarization with up to four speaker labels
 
-- No cloud calls anywhere: ASR, LLM, workflow engine and SMTP run on two machines on the hospital LAN.
-- n8n telemetry, version checks and template gallery are disabled.
-- On the laptop, n8n and SMTP bind to `127.0.0.1`; only the web app and inbox are exposed.
-- On the GPU node, 8000 and 11434 are open to the LAN — firewall them to the laptop's IP (above).
-  Traffic between the two is plain HTTP inside the LAN.
-- Raw audio is deleted right after transcription on both machines (`KEEP_AUDIO=0`); audio/transcripts are git-ignored.
-- `OFFLINE=1` is the default: model files load from disk only. `scripts/pull-models.sh` is the
-  one step that downloads them.
-- The web app and the inbox listen on this machine only (`APP_BIND_ADDRESS`, `MAILPIT_BIND_ADDRESS`
-  open them to the LAN; there is no login yet, so only on a closed network).
-- Uploads without a sound track or above `MAX_UPLOAD_MB` (2 GB) are refused. Audio is deleted
-  after transcription and also when a meeting fails.
+Enable the profile and configure the relevant URLs:
 
-## Evaluation
+```dotenv
+COMPOSE_PROFILES=nemo
+DIARIZATION_URL=http://nemo:8001
+NEMO_LOAD=diar
+```
 
-### ASR mode (4-min Moldovan biology lecture, exact hand transcript `data/refs/output.txt`)
+For Nemotron ASR, also set:
 
-| ASR mode | WER | CER |
+```dotenv
+ASR_BACKEND=nemotron
+NEMOTRON_URL=http://nemo:8001
+NEMO_LOAD=asr,diar
+```
+
+On a split deployment, use the GPU node's reachable address and published NeMo port
+instead of the internal hostname. See [docs/contracts.md](docs/contracts.md) for request and
+response formats.
+
+## Sealed offline mode
+
+Download all models before enabling sealed mode. The offline overlay places the API, ASR,
+LLM, NeMo, n8n, and Mailpit containers on an internal Docker network with no internet route.
+An nginx gateway exposes only the local browser interfaces.
+
+For the one-computer stack:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.gpu.yml \
+  -f docker-compose.offline.yml --profile nemo up -d
+sh scripts/egress-check.sh
+```
+
+Every running compute/data service printed by `egress-check.sh` should report `BLOCKED`.
+The gateway is intentionally excluded because it is the LAN entry point.
+
+## Configuration reference
+
+Values below are the Compose defaults unless noted otherwise.
+
+| Variable | Default | Meaning |
+|---|---:|---|
+| `MOCK_MODELS` | `1` | Use canned ASR and minutes; no model calls |
+| `ASR_URL` | empty | Remote ASR worker base URL; empty uses ASR in the API process |
+| `OLLAMA_URL` | `http://localhost:11434` | Ollama API base URL |
+| `LLM_MODEL` | `qwen3:8b` | Ollama model tag used for minutes extraction |
+| `LLM_NUM_CTX` | `16384` | LLM context size |
+| `ASR_MODE` | `longform` | `longform`, `segment`, or `plain` |
+| `ASR_BACKEND` | `whisper` | `whisper` or `nemotron` |
+| `WHISPER_MODEL` | `large-v3` | faster-whisper model cached under `models/whisper` |
+| `WHISPER_COMPUTE_TYPE` | `float16` | GPU inference precision |
+| `DIARIZATION_URL` | empty | NeMo diarization endpoint; empty disables diarization |
+| `CORRECT_TRANSCRIPT` | `0` | Run an additional LLM glossary-correction pass |
+| `KEEP_AUDIO` | `0` | Retain source audio after transcription |
+| `OFFLINE` | `1` | Load model files from disk without runtime downloads |
+| `MAX_UPLOAD_MB` | `2048` | Maximum accepted upload size |
+| `APP_BIND_ADDRESS` | `127.0.0.1` | Web app bind address; `0.0.0.0` opens it to the LAN |
+| `N8N_BIND_ADDRESS` | `127.0.0.1` | n8n editor bind address |
+| `MAILPIT_BIND_ADDRESS` | `127.0.0.1` | Mailpit web interface bind address |
+| `N8N_WEBHOOK_URL` | `http://n8n:5678/webhook/mom` | Delivery webhook used inside the laptop Compose network |
+| `N8N_ENCRYPTION_KEY` | demo value | Key protecting n8n credentials; replace before first non-demo startup and never rotate it without migrating data |
+
+Additional ASR tuning variables are documented directly in
+[`api/app/config.py`](api/app/config.py). Each machine may use its own `.env`.
+
+## Data lifecycle and privacy
+
+| Data | Location | Default behavior |
 |---|---|---|
-| `segment`: short VAD chunks, no context (old default) | 83.6% | 67.1% |
-| `plain`: stock Whisper, auto language | 63.4% | 37.8% |
-| **`longform`**: language runs, 30 s windows + context (default) | **53–57%** | **~29%** |
-| fixed 5 s / 10 s / 20 s chunks, no context | 85.2% / 82.0% / 77.7% | |
+| Uploaded recording | `data/jobs/<id>/audio.*` | Deleted after transcription when `KEEP_AUDIO=0` |
+| Compressed email recording | `data/jobs/<id>/recording.ogg` | Optional attachment; deleted after successful delivery |
+| Transcript and segments | `data/jobs/<id>/` | Retained locally; not emailed unless the reviewer requests a transcript annex |
+| Draft minutes | `data/jobs/<id>/mom_draft.json` | Retained as the original model result |
+| Final minutes | `data/jobs/<id>/mom.json` and `mom.html` | Retained locally |
+| Model weights | `models/` | Downloaded once and loaded locally |
+| n8n state | Docker volume `n8n_data` | Includes credentials and execution history; executions are configured for 24-hour pruning |
 
-### Model (longform mode)
+Recordings without an audio track and uploads larger than the configured limit are rejected.
+If processing fails, source audio is removed unless retention was explicitly enabled.
 
-| Whisper model | Lecture WER raw / dialect-normalised / + no diacritics | Speed on Parliament audio (8 GB laptop GPU) |
+## API summary
+
+Interactive OpenAPI documentation is available at http://localhost:8000/docs while the API
+is running.
+
+| Method | Route | Purpose |
 |---|---|---|
-| large-v3-turbo (809 M params) | 57-71% (unstable between runs) | 3.3 min per 60 min |
-| **large-v3 (1.55 B, default)** | **53.2-53.9% / 52.3-53.0% / 49.7-50.5%** | **7.8 min per 60 min** |
+| `POST` | `/api/jobs` | Upload a recording and create a processing job |
+| `GET` | `/api/jobs` | List recent jobs |
+| `GET` | `/api/jobs/{id}` | Read job status and progress |
+| `POST` | `/api/jobs/{id}/send` | Apply review edits, approve, and deliver |
+| `GET` | `/api/jobs/{id}/mom.json` | Download structured minutes |
+| `GET` | `/api/jobs/{id}/segments.json` | Download timestamped transcript segments |
+| `GET` | `/api/jobs/{id}/transcript.txt` | Download the plain-text transcript |
+| `GET` | `/api/jobs/{id}/mom.html` | View rendered minutes |
+| `POST` | `/api/asr` | Remote ASR worker endpoint |
+| `GET` | `/api/asr/health` | ASR worker status |
+| `GET` | `/api/health` | Combined ASR, LLM, and n8n status |
 
-`eval/wer.py` prints three scores: *dialect* maps spoken Moldovan forms ("așa-i", "omogene-s",
-"îs", "pân'") to standard spelling on both sides; *no diacritics* folds ă â î ș ț. Together they
-explain only ~4 points: the remaining errors are genuinely misheard words (phone audio in a
-lecture hall). On clean Parliament audio both models keep whole Russian speeches; large-v3 also
-caught sentences turbo dropped.
+The n8n delivery payload is validated against
+[`schemas/meeting-delivery-v2.schema.json`](schemas/meeting-delivery-v2.schema.json). Full
+contract details are in [n8n/README.md](n8n/README.md).
 
-Longer context wins: Whisper is trained on 30 s windows. The language is chosen per
-speech region *before* decoding (Russian only at >= 95% detection confidence). Forced
-Romanian on a Russian speech makes Whisper write "Să vă mulțumim pentru vizionare"
-instead, so choosing the language first recovers whole Russian speeches in the
-Parliament session. An 80% threshold let noisy Romanian through as Russian (66.5% WER).
-Re-decoding low-confidence segments in other languages (`LONGFORM_RESCUE=1`) cost +10 WER
-on the lecture, so it is off by default. Runs vary by a few points (Whisper's
-temperature fallback). Note: the lecture is also fine-tuning training data.
+## Validation and maintenance
 
+Validate the n8n contract with Node.js 18 or newer:
 
 ```bash
-# on the GPU node
-docker compose -f docker-compose.gpu.yml exec asr python -m app.cli transcribe /data/dev.wav --mode plain   --out /data/out/plain.txt
-docker compose -f docker-compose.gpu.yml exec asr python -m app.cli transcribe /data/dev.wav --mode segment --out /data/out/segment.txt
-docker compose -f docker-compose.gpu.yml exec asr python eval/wer.py /data/refs/dev.txt /data/out/plain.txt /data/out/segment.txt
+node n8n/test-contract.cjs
 ```
 
-The 11-min sample is split: **0–6 min = dev** (tune on it), **6–11 min = held-out test**
-(only measured at the end). Cut with
-`ffmpeg -i sample.mp3 -t 360 dev.wav` / `ffmpeg -i sample.mp3 -ss 360 test.wav`.
+With the laptop stack running, exercise all routes and check actual Mailpit delivery:
 
-| Setup | WER dev | WER test | CER test |
-|---|---|---|---|
-| Whisper large-v3-turbo, plain | – | – | – |
-| + VAD / per-utterance language | – | – | – |
-| + glossary prompt | – | – | – |
-| + LLM correction | – | – | – |
+```bash
+node n8n/smoke-test.cjs
+```
 
-**Speed** (60-min recording, `scripts/make-60min.sh`), RTX 5060 Laptop 8 GB:
+Frontend development requires Node.js 20.19 or newer:
 
-| Stage | Time |
+```bash
+cd api/web
+npm install
+npm run dev
+```
+
+The Vite development server runs at http://localhost:5173 and proxies the backend on port
+8000. Normal Docker builds compile the frontend automatically; Node.js is not required on
+deployment machines.
+
+Useful operational commands:
+
+```bash
+docker compose ps
+docker compose logs --tail=100
+docker compose restart api
+docker compose down
+```
+
+`docker compose down` preserves the named `n8n_data` volume unless `--volumes` is added.
+
+## Troubleshooting
+
+| Symptom | Check |
 |---|---|
-| ASR | – |
-| LLM extraction | – |
-| n8n + email | – |
-| **Upload → email** | – |
+| Web application does not open | Run `docker compose ps` and inspect `docker compose logs api`. |
+| Health page reports ASR down | Verify `ASR_URL`, the GPU firewall, and `/api/asr/health` on the GPU node. |
+| Health page reports LLM down | Verify `OLLAMA_URL` and that `LLM_MODEL` exactly matches a pulled Ollama tag. |
+| Uploaded real audio returns sample minutes | `MOCK_MODELS` is still `1`; change it to `0` and recreate the API container. |
+| Processing appears idle at first | Model loading and the language pre-pass can take time before visible progress changes. |
+| GPU out-of-memory error | Stop an idle Ollama model or restart the NeMo service, then retry one job at a time. |
+| n8n cannot decrypt credentials | Restore the `N8N_ENCRYPTION_KEY` used when `n8n_data` was created. |
+| No email appears in Mailpit | Inspect the job error, n8n execution history, and `docker compose logs n8n mailpit`. |
+| `egress-check.sh` prints nothing | Confirm the running stack uses the same Compose files/profile as the shell invoking the script. |
 
-### Fine-tuning data: Moldovan Parliament stenograms
+## Repository map
 
-Plenary sessions of the Parliament of Moldova have a full video on YouTube and an
-official verbatim **stenogram** (speaker-labelled, Russian replies kept in Russian),
-published 2-3 months later on the sitting's page at parlament.md (CC BY-SA 4.0).
-`eval/stenogram_align.py` turns such a pair into a Whisper training set: Whisper only
-supplies word times, the text is the stenographers', and segments the ASR can't confirm
-are dropped.
-
-```bash
-# laptop: audio + stenogram text (example: sitting of 3 July 2025)
-yt-dlp -f 251 -x --audio-format opus -o "data/parlament/2025-07-03/audio.%(ext)s" "https://www.youtube.com/watch?v=jD0Q6k0IdS4"
-pdftotext -enc UTF-8 data/parlament/2025-07-03/stenograma.pdf data/parlament/2025-07-03/stenograma.txt
-python eval/stenogram_align.py parse data/parlament/2025-07-03/stenograma.txt data/parlament/2025-07-03/turns.jsonl
-
-# GPU node (copy audio.opus + turns.jsonl into its ./data/parlament/2025-07-03/ first)
-docker compose -f docker-compose.gpu.yml exec asr python eval/stenogram_align.py align   /data/parlament/2025-07-03/audio.opus /data/parlament/2025-07-03/turns.jsonl /data/parlament/2025-07-03/out
+```text
+api/app/                 FastAPI routes, ASR/LLM pipeline, review, rendering, delivery
+api/web/                 React/Vite user interface
+services/nemo-server/    Optional Nemotron ASR and Sortformer diarization service
+n8n/                     Routing workflow, SMTP credential, contract and smoke tests
+schemas/                 Versioned delivery JSON schema
+scripts/                 Model download, GPU, connectivity, and offline checks
+docs/                    Architecture, contracts, demo runbook, and demo script
+eval/                    WER/CER and stenogram evaluation tools
+glossary/                Medical terms and optional Whisper prompts
+data/                    Local job data and evaluation references
 ```
 
-`out/aligned.tsv` is the stenogram with start/end seconds per sentence group;
-`out/dataset/` (clips <= 30 s + `metadata.csv`, every 10th speaker turn held out as
-validation) loads with `datasets.load_dataset("audiofolder", data_dir=...)`.
+## Further reading
 
-## Layout
+- [How to use the solution](HOW_TO_USE.md)
+- [Architecture](docs/architecture.md)
+- [Service contracts](docs/contracts.md)
+- [Demo runbook](docs/demo-runbook.md)
+- [Demo script](docs/demo-script.md)
+- [n8n delivery documentation](n8n/README.md)
+- [Welcome to the project](WELCOME.md)
+- [Thank you](THANK_YOU.md)
 
-```
-api/app/asr.py        hybrid ASR (VAD, per-utterance language ID, prompts, hallucination
-                      filter); transcribe_remote() calls the GPU node's /api/asr
-api/app/llm.py        Ollama calls: glossary correction, MoM extraction (JSON schema, map-reduce)
-api/app/mock.py       MOCK_MODELS=1 stand-ins, served from api/fixtures/ (invented names)
-api/app/render.py     email-safe HTML minutes
-api/app/pipeline.py   job queue: transcribe → correct → extract → review → send to n8n
-api/app/main.py       HTTP API, incl. /api/asr (ASR worker) and /api/health (node status)
-api/app/cli.py        transcribe / mom / download from the command line
-api/web/              React app (Vite): drop or record → progress → review → send;
-                      technical status and links live in Settings
-n8n/                  routing workflow + SMTP credential (auto-imported)
-glossary/             Whisper prompts per language, medical term list
-eval/wer.py           WER/CER + most frequent substitutions
-eval/stenogram_align.py  Parliament stenogram + audio -> timed transcript + Whisper dataset
-scripts/              pull-models.sh (GPU node), smoke-gpu-node.sh (laptop → GPU node)
-```
+## Project purpose
 
-## API
-
-| Endpoint | |
-|---|---|
-| `GET /api/jobs` | 10 most recent jobs (id, stage, title, type, date) |
-| `POST /api/jobs` | multipart `file`, `meeting_type`, `meeting_date` → job |
-| `GET /api/jobs/{id}` | stage (`queued` → `transcribing` → `extracting` → `review` → `sending` → `done`/`failed`), progress, timings |
-| `GET /api/jobs/{id}/mom.json`, `segments.json`, `mom.html`, `transcript.txt` | results |
-| `POST /api/jobs/{id}/send` | `{"meeting_type"?, "action_items": [{"owner", "deadline"}, …]}` (one per item, in order) → emails via n8n |
-| `POST /api/asr` | ASR worker: multipart `file`, `mode` → segment list |
-| `GET /api/health` | status + location of ASR, LLM and n8n |
-
-## Configuration (`.env`)
-
-| Variable | Default | |
-|---|---|---|
-| `MOCK_MODELS` | `1` on the laptop | canned fixtures instead of ASR/LLM calls |
-| `ASR_URL` | empty | GPU node ASR worker, e.g. `http://192.168.1.50:8000`; empty = transcribe locally |
-| `OLLAMA_URL` | `http://localhost:11434` | GPU node Ollama, e.g. `http://192.168.1.50:11434` |
-| `LLM_MODEL` | `qwen3:8b` | any Ollama model; called with `think: false` |
-| `WHISPER_MODEL` | `large-v3-turbo` | GPU node |
-| `ASR_MODE` | `segment` | `plain` = baseline |
-| `CORRECT_TRANSCRIPT` | `0` | LLM glossary correction pass |
-| `KEEP_AUDIO` | `0` | keep uploaded audio after transcription |
-| `OFFLINE` | `1` | model files from disk only; `pull-models.sh` downloads them once |
-
-## One machine (demo laptop with an NVIDIA GPU)
-
-Laptop stack and GPU node in one Compose project on the same host:
-
-```bash
-# .env: MOCK_MODELS=0, ASR_URL=http://asr:8000, OLLAMA_URL=http://ollama:11434, ASR_PORT=8001
-#       DIARIZATION_URL=http://nemo:8001, NEMO_LOAD=diar      (speaker labels)
-docker compose -f docker-compose.yml -f docker-compose.gpu.yml --profile nemo up -d --build
-```
-
-Measured on an RTX 5060 Laptop (8 GB): Whisper + Sortformer + Qwen 2.5 7B all fit (run in turn).
-
-| Test | Result |
-|---|---|
-| 96-min real lecture recording (RO/RU, phone mic) | 12 min upload → draft minutes |
-| Sortformer, 3-speaker meeting with ground truth | 8/8 turns attributed, 3 distinct labels |
-| Nemotron 3.5 ASR vs Whisper, 5 real Moldovan-Romanian phrases | Nemotron 2/5 (best setting), Whisper 5/5 → Whisper used |
-
-## n8n delivery contract (v2)
-
-n8n validates an **approved** meeting snapshot plus DOCX/PDF attachments and routes it
-by meeting type. Contract, examples and tests: [n8n/README.md](n8n/README.md),
-[schemas/meeting-delivery-v2.schema.json](schemas/meeting-delivery-v2.schema.json).
-
-## ASR backends & speaker diarization
-
-Both recognisers get the **same VAD chunks**, so WER comparisons are like for like.
-
-| `.env` | What runs |
-|---|---|
-| `ASR_BACKEND=whisper` (default) | faster-whisper `large-v3-turbo` inside `api` |
-| `ASR_BACKEND=nemotron` | [Nemotron 3.5 ASR](https://huggingface.co/nvidia/nemotron-3.5-asr-streaming-0.6b) in the local `nemo` container (auto language per chunk, retried in ro/ru/en if it guesses another locale) |
-| `DIARIZATION_URL=http://nemo:8001` | [Streaming Sortformer](https://huggingface.co/nvidia/diar_streaming_sortformer_4spk-v2.1) speaker turns (max 4 speakers), merged onto the transcript by time overlap |
-
-```bash
-docker compose --profile nemo up -d --build     # adds the nemo container
-docker compose exec api python -m app.cli transcribe /data/dev.wav --backend nemotron --out /data/out/nemotron.txt
-```
-
-If diarization fails the minutes are still sent, just without speaker labels.
-Interfaces between services: [docs/contracts.md](docs/contracts.md).
-
-## Sealed offline demo
-
-**Offline demo (sealed mode):** every compute container is put on a Docker network with
-no route to the internet; only an nginx gateway (config only, no code) publishes ports.
-
-```bash
-docker compose -f docker-compose.yml -f docker-compose.offline.yml up -d
-sh scripts/egress-check.sh   # every compute and data container must print BLOCKED
-sh scripts/gpu-check.sh      # Whisper, Ollama (and NeMo) must be on the GPU
-```
-
-Then turn Wi-Fi off (and quit Tailscale) and run a meeting end to end.
-
-<!-- Documentation touchpoint: repository participation marker. -->
+This is our GigaHack 2026 response to the Medpark challenge: practical AI that helps teams
+turn multilingual conversations into accountable follow-up while keeping sensitive data
+under local control. Feedback, validation, and responsible testing are welcome.
