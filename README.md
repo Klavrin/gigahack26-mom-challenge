@@ -328,3 +328,5 @@ sh scripts/gpu-check.sh      # Whisper, Ollama (and NeMo) must be on the GPU
 ```
 
 Then turn Wi-Fi off (and quit Tailscale) and run a meeting end to end.
+
+<!-- Documentation touchpoint: repository participation marker. -->
