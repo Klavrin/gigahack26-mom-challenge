@@ -1,6 +1,6 @@
-# On-Premise Minutes of Meeting
+# Synaps: on-premise minutes of meeting
 
-> GigaHack 2026 · Medpark challenge
+> *Connecting conversations to decisions.* · GigaHack 2026 · Medpark challenge
 
 Turn a hospital meeting recording into a multilingual transcript and structured minutes
 with decisions, action items, owners, and deadlines—then review and deliver the result by

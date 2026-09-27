@@ -102,6 +102,6 @@ const html = '<!doctype html><html lang="ro"><head><meta charset="utf-8"></head>
   '<tr><td style="padding:14px 28px;background:#f9fafb;font-size:12px;color:#6b7280;line-height:1.5">' +
   (automatic ? '<b>Trimis automat, fără verificare umană</b>' : `Aprobat de <b>${escape(approval.approved_by)}</b>`) +
   ` · ${day(approval.approved_at)} ${time(approval.approved_at)}<br>` +
-  'Generat on-premise. Înregistrarea și transcrierea nu au părăsit rețeaua internă a spitalului.' +
+  'Generat de Synaps, on-premise. Înregistrarea și transcrierea nu au părăsit rețeaua internă a spitalului.' +
   '</td></tr></table></td></tr></table></body></html>';
 return {json:{validation:'valid', delivery_id, meeting_id:meeting.id, meeting_type:meeting.type, subject, html, attachment_keys:Object.keys(binary).join(',')}, binary};
