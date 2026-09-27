@@ -47,12 +47,13 @@ scripts/...` helpers need **Git Bash**, because PowerShell has no `sh`.
 
 ## B. Switch to offline mode (before going on stage)
 
-1. In `.env`, set `OFFLINE=1` and append `:docker-compose.offline.yml` to `COMPOSE_FILE`.
+1. In `.env`, append `:docker-compose.offline.yml` to `COMPOSE_FILE` (`OFFLINE=1` is already the default).
 2. Restart:
    ```bash
    docker compose up -d
    ```
-3. Prove nothing can reach the internet. **Every line must say `BLOCKED`**:
+3. Prove the compute and data containers cannot reach the internet. **Every line must say
+   `BLOCKED`**; the gateway is listed as the LAN entry point, by design:
    ```bash
    sh scripts/egress-check.sh
    ```
@@ -62,12 +63,15 @@ scripts/...` helpers need **Git Bash**, because PowerShell has no `sh`.
 
 Follow the flow in [demo-script.md](demo-script.md#demo-flow-on-stage-3-min):
 1. security check
-2. upload (type **Medical**)
+2. tick **"Verific procesul-verbal înainte de trimitere"**, then upload (the list is chosen from the content)
 3. numbers slide while it runs
 4. review with quotes and the changed owner
 5. "Aprobat de"
 6. Approve
 7. the email in Mailpit: the final decisions, with the DOCX and the recording attached
+
+Fully automatic path (the default): leave the box unticked. The email arrives in Mailpit on its
+own, to the list inferred from the content, marked "Trimis automat, fără verificare umană".
 
 | Open in the browser | What it shows |
 |---|---|

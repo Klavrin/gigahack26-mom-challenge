@@ -13,7 +13,7 @@ services:
       args:
         BASE_IMAGE: python:3.12-slim   # no CUDA needed on the laptop
     ports:
-      - "8000:8000"          # web app, reachable from the internal network
+      - "${APP_BIND_ADDRESS:-127.0.0.1}:8000:8000"   # web app; APP_BIND_ADDRESS=0.0.0.0 serves the LAN
     environment:
       MOCK_MODELS: ${MOCK_MODELS:-1}
       ASR_URL: ${ASR_URL:-}
@@ -30,8 +30,8 @@ services:
       # Only used if ASR_URL is empty and mock is off (slow CPU fallback).
       WHISPER_DEVICE: cpu
       WHISPER_COMPUTE_TYPE: int8
-      OFFLINE: ${OFFLINE:-0}
-      HF_HUB_OFFLINE: ${OFFLINE:-0}
+      OFFLINE: ${OFFLINE:-1}
+      HF_HUB_OFFLINE: ${OFFLINE:-1}
       N8N_WEBHOOK_URL: ${N8N_WEBHOOK_URL:-http://n8n:5678/webhook/mom}
       TZ: Europe/Chisinau
     volumes:

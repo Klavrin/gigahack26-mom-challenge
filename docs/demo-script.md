@@ -101,8 +101,8 @@ record on another day.
 
 ## Demo flow on stage (~3 min)
 
-1. **Security first (20 s).** Run `sh scripts/egress-check.sh`: every container prints **BLOCKED**. Then turn Wi-Fi off in front of the jury.
-2. **Upload (15 s).** Upload the recording, type **Medical**. Show the progress bar moving.
+1. **Security first (20 s).** Run `sh scripts/egress-check.sh`: every compute and data container prints **BLOCKED** (the gateway is the LAN entry point). Then turn Wi-Fi off in front of the jury.
+2. **Upload (15 s).** Tick **"Verific procesul-verbal înainte de trimitere"** (the default is fully automatic sending), then upload the recording. Show the progress bar moving; the list is chosen from the content.
 3. **While it runs (60–90 s)**, show the architecture slide and the numbers:
    - lecture WER 83.6 % → ~53 %,
    - the Nemotron vs Whisper benchmark,

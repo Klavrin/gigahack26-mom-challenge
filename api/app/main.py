@@ -18,16 +18,18 @@ STATIC = config.STATIC_DIR
 @app.on_event("startup")
 def _startup() -> None:
     (config.DATA_DIR / "jobs").mkdir(parents=True, exist_ok=True)
+    pipeline.restore()   # meetings from before a restart; interrupted ones are queued again
     pipeline.start_worker()
 
 
 @app.post("/api/jobs")
 def create_job(
     file: UploadFile = File(...),
-    meeting_type: str = Form(...),
+    meeting_type: str = Form(""),   # empty: inferred from what the meeting is about
     meeting_date: str = Form(""),
+    review: bool = Form(False),     # True: wait for a person on the review page; default: send automatically
 ):
-    if meeting_type not in config.MEETING_TYPES:
+    if meeting_type and meeting_type not in config.MEETING_TYPES:
         raise HTTPException(400, f"meeting_type must be one of {config.MEETING_TYPES}")
     date = dt.date.fromisoformat(meeting_date) if meeting_date else dt.date.today()
     job_id = pipeline.new_job_id()
@@ -35,9 +37,25 @@ def create_job(
     folder.mkdir(parents=True)
     suffix = Path(file.filename or "audio").suffix or ".webm"
     audio_path = folder / f"audio{suffix}"
-    with audio_path.open("wb") as f:
-        shutil.copyfileobj(file.file, f)
-    return pipeline.submit(audio_path, meeting_type, date, job_id)
+    if not _save_upload(file, audio_path):
+        shutil.rmtree(folder, ignore_errors=True)
+        raise HTTPException(413, f"Fișierul depășește {config.MAX_UPLOAD_MB} MB.")
+    if not config.MOCK_MODELS and not asr.has_audio(str(audio_path)):
+        shutil.rmtree(folder, ignore_errors=True)
+        raise HTTPException(400, "Fișierul nu conține sunet. Alegeți o înregistrare audio sau video.")
+    return pipeline.submit(audio_path, meeting_type or None, date, job_id, auto_send=not review)
+
+
+def _save_upload(file: UploadFile, path: Path) -> bool:
+    """Copy the upload to disk; False once it passes MAX_UPLOAD_MB."""
+    limit, size = config.MAX_UPLOAD_MB * 1024 * 1024, 0
+    with path.open("wb") as f:
+        while chunk := file.file.read(1024 * 1024):
+            size += len(chunk)
+            if size > limit:
+                return False
+            f.write(chunk)
+    return True
 
 
 @app.get("/api/jobs")

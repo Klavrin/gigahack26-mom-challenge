@@ -8,7 +8,7 @@ import Job from "./components/Job.jsx";
 import Settings from "./components/Settings.jsx";
 
 const SETTINGS_KEY = "mom.settings";
-const DEFAULTS = { lang: "ro", defaultType: "medical" };
+const DEFAULTS = { lang: "ro", meetingType: "auto" };   // auto: the list is inferred from the content
 
 function loadSettings() {
   try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}") }; }
@@ -19,7 +19,7 @@ const jobFromHash = () => location.hash.match(/job=([\w-]+)/)?.[1] || null;
 
 // Polls /api/health; the result only surfaces in Settings and as a dot on its icon.
 function useHealth() {
-  const [health, setHealth] = useState(null);
+  const [health, setHealth] = useState(undefined);   // undefined: first check still running
   useEffect(() => {
     let alive = true;
     const tick = () => api.health().then((h) => alive && setHealth(h)).catch(() => alive && setHealth(null));
@@ -68,14 +68,14 @@ export default function App() {
           </button>
           <button className="icon-btn" onClick={() => setSettingsOpen(true)} aria-label={t.settings} title={t.settings}>
             <Gear size={20} strokeWidth={1.75} />
-            {level !== "up" && <span className={`status-dot ${level}`} aria-hidden="true" />}
+            {(level === "down" || level === "mock") && <span className={`status-dot ${level}`} aria-hidden="true" />}
           </button>
         </header>
 
         <main className="content">
           {jobId
             ? <Job key={jobId} id={jobId} onNew={() => open(null)} lang={settings.lang} />
-            : <Home onStarted={open} defaultType={settings.defaultType} lang={settings.lang} />}
+            : <Home onStarted={open} meetingType={settings.meetingType} lang={settings.lang} />}
         </main>
 
         <footer className="footer">

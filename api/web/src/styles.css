@@ -292,6 +292,8 @@ code { font: 12.5px/1.5 ui-monospace, "Cascadia Mono", Consolas, monospace; }
 }
 .attach-option { display: flex; gap: 10px; align-items: flex-start; font-size: 14px; cursor: pointer; }
 .attach-option input { margin-top: 3px; accent-color: var(--accent); }
+.review-first { margin: 0 0 16px; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
+.eyebrow .inferred { text-transform: none; letter-spacing: 0; font-weight: 400; }
 .attach-option.unavailable { opacity: .55; cursor: default; }
 .attach-option small { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; }
 .all-set { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--ok); }

@@ -12,6 +12,7 @@ MOM_SCHEMA = {
     "properties": {
         "title": {"type": "string"},
         "summary": {"type": "string"},
+        "meeting_type": {"type": "string", "enum": list(config.MEETING_TYPES)},
         "participants": {"type": "array", "items": {"type": "string"}},
         "speakers": {
             "type": "array",
@@ -53,11 +54,11 @@ MOM_SCHEMA = {
         },
         "open_questions": {"type": "array", "items": {"type": "string"}},
     },
-    "required": ["title", "summary", "participants", "speakers", "topics", "decisions",
+    "required": ["title", "summary", "meeting_type", "participants", "speakers", "topics", "decisions",
                  "action_items", "open_questions"],
 }
 
-EXTRACT_RULES = """You are the secretary of a {meeting_type} meeting at Medpark hospital (Chisinau, Moldova).
+EXTRACT_RULES = """You are the secretary of a {kind}meeting at Medpark hospital (Chisinau, Moldova).
 The transcript is mostly Romanian with abrupt switches to Russian and English, and medical vocabulary.
 Each line starts with [hh:mm:ss language speaker]. It comes from speech recognition and may contain errors: infer the intended meaning.
 Speaker labels (S1, S2...) are anonymous voices. Map a label to a person only when the transcript makes it clear
@@ -76,6 +77,10 @@ Write every output field in {language}. Spell drug names, medical terms and peop
   - deadline: resolve relative expressions ("până vineri", "к понедельнику", "end of month") as YYYY-MM-DD.
     Do NOT calculate dates yourself: look the day up in the CALENDAR below ("vineri"/"Friday" = the first Friday AFTER the meeting date). "" if no deadline was mentioned.
   - deadline_text: the deadline expression exactly as spoken, "" if none.
+- meeting_type: who must receive these minutes, judged from what the meeting is about:
+  "medical" = patient care: cases, diagnoses, treatments, handovers, clinical protocols;
+  "executive" = hospital leadership: strategy, budgets, investments, equipment and suppliers, performance;
+  "administrative" = running the hospital: staff schedules, HR, facilities, cleaning, IT, internal rules.
 - evidence: a short verbatim quote (max 20 words) from the transcript that supports the item.
 - If something is not in the transcript, leave it out. Empty lists are fine.
 
@@ -150,6 +155,8 @@ def _spoken_dates(transcript: str, meeting_date: dt.date) -> set[str]:
 
 def _clean(mom: dict, meeting_date: dt.date, transcript: str) -> dict:
     """Deterministic post-checks on the model output."""
+    if mom.get("meeting_type") not in config.MEETING_TYPES:
+        mom["meeting_type"] = ""
     said = deadlines.normalize(transcript)
     said_dates = None   # computed only if needed
     label = re.compile(r"^S\d+$")
@@ -265,7 +272,7 @@ def correct_transcript(segments: list[dict]) -> list[dict]:
 
 def extract_mom(transcript: str, meeting_type: str, meeting_date: dt.date) -> dict:
     system = EXTRACT_RULES.format(
-        meeting_type=meeting_type,
+        kind=f"{meeting_type} " if meeting_type else "",
         date=meeting_date.isoformat(),
         weekday=WEEKDAYS[meeting_date.weekday()],
         language=config.MOM_LANGUAGE,

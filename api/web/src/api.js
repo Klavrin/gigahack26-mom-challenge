@@ -24,11 +24,12 @@ export const api = {
     }).then(json),
 
   // XHR instead of fetch so large recordings show upload progress.
-  create(blob, filename, meetingType, meetingDate, onProgress) {
+  create(blob, filename, meetingType, meetingDate, reviewFirst, onProgress) {
     const form = new FormData();
     form.append("file", blob, filename);
-    form.append("meeting_type", meetingType);
+    if (meetingType && meetingType !== "auto") form.append("meeting_type", meetingType);   // else inferred
     form.append("meeting_date", meetingDate);
+    form.append("review", reviewFirst ? "true" : "false");
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
       xhr.open("POST", "/api/jobs");

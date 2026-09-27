@@ -8,21 +8,23 @@ import Recorder from "./Recorder.jsx";
 const MEDIA_EXT = /\.(mp3|wav|m4a|aac|ogg|oga|opus|webm|flac|wma|amr|mp4|mov|mkv|3gp)$/i;
 const isMedia = (f) => /^(audio|video)\//.test(f.type) || MEDIA_EXT.test(f.name);
 
-export default function Home({ onStarted, defaultType, lang }) {
+export default function Home({ onStarted, meetingType, lang }) {
   const t = useT();
   const [mode, setMode] = useState("idle");        // idle | recording | uploading
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState(null);
+  const [reviewFirst, setReviewFirst] = useState(false);   // default: sent automatically
 
   async function start(blob, filename, date) {
     setError(null);
     setMode("uploading");
     setProgress(0);
     try {
-      const job = await api.create(blob, filename, defaultType, date, setProgress);
+      const job = await api.create(blob, filename, meetingType, date, reviewFirst, setProgress);
       onStarted(job.id);
-    } catch {
-      setError(t.uploadFailed);
+    } catch (e) {
+      // the server explains refused files ("no sound", "too large"); otherwise a generic message
+      setError(/^(network|HTTP \d+)$/.test(e.message) ? t.uploadFailed : e.message);
       setMode("idle");
     }
   }
@@ -57,6 +59,13 @@ export default function Home({ onStarted, defaultType, lang }) {
 
       {mode === "idle" && (
         <>
+          <label className="attach-option review-first">
+            <input type="checkbox" checked={reviewFirst} onChange={(e) => setReviewFirst(e.target.checked)} />
+            <span>
+              {t.reviewFirst}
+              <small>{reviewFirst ? t.reviewFirstOn : t.reviewFirstOff}</small>
+            </span>
+          </label>
           <DropZone onFile={takeFile} />
           <div className="or"><span>{t.or}</span></div>
           <button className="record-cta" onClick={() => { setError(null); setMode("recording"); }}>

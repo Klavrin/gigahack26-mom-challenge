@@ -87,8 +87,11 @@ KEEP_AUDIO = _flag("KEEP_AUDIO")
 # The email can carry the recording (Ogg/Opus) next to the minutes. The n8n contract
 # accepts at most 15 MiB, so the bitrate is lowered for long meetings to fit.
 RECORDING_MAX_MB = 15
-# 1 = never touch the network for model files (demo / hospital mode).
-OFFLINE = _flag("OFFLINE")
+# Largest upload accepted (the sealed gateway allows the same 2 GB).
+MAX_UPLOAD_MB = int(_env("MAX_UPLOAD_MB", "2048"))
+# Default 1: model files load from disk only, nothing is fetched at runtime.
+# scripts/pull-models.sh is the one step that downloads them (network on, once).
+OFFLINE = _flag("OFFLINE", "1")
 # 1 = no ASR/LLM calls at all; serve canned fixtures (frontend/backend dev without a GPU).
 MOCK_MODELS = _flag("MOCK_MODELS")
 FIXTURES_DIR = Path(_env("FIXTURES_DIR", str(Path(__file__).resolve().parent.parent / "fixtures")))

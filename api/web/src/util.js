@@ -52,6 +52,7 @@ export function initials(name) {
 }
 
 export function healthLevel(health) {
+  if (health === undefined) return "checking";   // no answer yet: not an alarm
   if (!health) return "down";
   const states = Object.values(health.nodes).map((n) => n.status);
   if (states.includes("down")) return "down";

@@ -53,7 +53,9 @@ generation. `schemas/meeting-delivery-v2.schema.json` is the transport contract;
 - Actions: `description`, `owner`, `deadline`, `status`. Unknown owners/deadlines
   are JSON `null`. Deadlines may be natural language; n8n never invents dates.
   Status is `open`, `in_progress`, `done`, or `cancelled`.
-- `approval`: `status: "approved"`, nonblank `approved_by`, `approved_at`.
+- `approval`: `status`, nonblank `approved_by`, `approved_at`. `status` is `"approved"` (a
+  person reviewed the minutes) or `"automatic"` (the uploader chose automatic sending; the
+  email and the DOCX say the minutes were not reviewed).
   Approval must follow meeting end. Backend owns authenticating the reviewer and
   ensuring documents and state are the exact approved snapshot.
 - `documents`: one or two `{filename, mime_type, data_base64}` objects, DOCX/PDF

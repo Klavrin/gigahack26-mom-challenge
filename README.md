@@ -91,12 +91,15 @@ sh scripts/smoke-gpu-node.sh <GPU_NODE_IP> data/<some-recording>.ogg
 docker compose up -d
 ```
 
-**Offline demo:** set `OFFLINE=1` on the GPU node, keep both machines on the same
-switch/hotspot with no internet uplink, upload.
+**Offline demo:** `OFFLINE=1` is the default (models load from disk only). Keep both
+machines on the same switch/hotspot with no internet uplink, upload.
 
 ## The web app
 
 Built for doctors, not IT: the home screen is one drop zone and one *Record* button.
+By default the minutes go out on their own once ready, to the list the content calls for
+(medical / executive / administrative), marked as not reviewed; tick *Verific procesul-verbal
+înainte de trimitere* before uploading to approve them on the review page first.
 Everything technical (which node does ASR/LLM, mock mode, links to Mailpit and n8n,
 interface language RO/EN, default distribution list) is behind the settings icon,
 which shows a small dot when something needs attention.
@@ -134,7 +137,12 @@ resolved date). Nothing is emailed until someone clicks *Aprobați și trimiteț
 - On the GPU node, 8000 and 11434 are open to the LAN — firewall them to the laptop's IP (above).
   Traffic between the two is plain HTTP inside the LAN.
 - Raw audio is deleted right after transcription on both machines (`KEEP_AUDIO=0`); audio/transcripts are git-ignored.
-- With `OFFLINE=1` model files are loaded from disk only.
+- `OFFLINE=1` is the default: model files load from disk only. `scripts/pull-models.sh` is the
+  one step that downloads them.
+- The web app and the inbox listen on this machine only (`APP_BIND_ADDRESS`, `MAILPIT_BIND_ADDRESS`
+  open them to the LAN; there is no login yet, so only on a closed network).
+- Uploads without a sound track or above `MAX_UPLOAD_MB` (2 GB) are refused. Audio is deleted
+  after transcription and also when a meeting fails.
 
 ## Evaluation
 
@@ -264,7 +272,7 @@ scripts/              pull-models.sh (GPU node), smoke-gpu-node.sh (laptop → G
 | `ASR_MODE` | `segment` | `plain` = baseline |
 | `CORRECT_TRANSCRIPT` | `0` | LLM glossary correction pass |
 | `KEEP_AUDIO` | `0` | keep uploaded audio after transcription |
-| `OFFLINE` | `0` | `1` = never download models (GPU node) |
+| `OFFLINE` | `1` | model files from disk only; `pull-models.sh` downloads them once |
 
 ## One machine (demo laptop with an NVIDIA GPU)
 
@@ -315,7 +323,7 @@ no route to the internet; only an nginx gateway (config only, no code) publishes
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.offline.yml up -d
-sh scripts/egress-check.sh   # every container must print BLOCKED
+sh scripts/egress-check.sh   # every compute and data container must print BLOCKED
 sh scripts/gpu-check.sh      # Whisper, Ollama (and NeMo) must be on the GPU
 ```
 
