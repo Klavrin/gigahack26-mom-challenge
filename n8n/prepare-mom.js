@@ -30,7 +30,7 @@ const validate = (value, rule, path = 'body') => {
 const body = $json.body;
 const error = validate(body, schema);
 if (error) return invalid(error);
-const {state, approval, documents, delivery_id} = body;
+const {state, approval, documents, recording, delivery_id} = body;
 const {meeting} = state;
 if (Date.parse(meeting.ended_at) < Date.parse(meeting.started_at) || Date.parse(approval.approved_at) < Date.parse(meeting.ended_at)) return invalid('Approval must follow meeting end; end must follow start');
 if (JSON.stringify(state).length > 500000) return invalid('State exceeds 500000 characters');
@@ -49,9 +49,18 @@ for (const [i, doc] of documents.entries()) {
   if (pdf ? bytes.subarray(0,5).toString() !== '%PDF-' : bytes.subarray(0,4).toString('hex') !== '504b0304') return invalid('Invalid document signature');
   binary[`document_${i}`] = {data:doc.data_base64, mimeType:doc.mime_type, fileName:doc.filename};
 }
+if (recording) {
+  const bytes = Buffer.from(recording.data_base64, 'base64');
+  if (bytes.toString('base64') !== recording.data_base64) return invalid('Non-canonical base64');
+  if (bytes.length > 15 * 1024 * 1024) return invalid('Recording exceeds 15 MiB');
+  if (bytes.subarray(0,4).toString() !== 'OggS') return invalid('Invalid recording signature');
+  if (!(recording.duration_s >= 0)) return invalid('Invalid recording duration');
+  binary.recording = {data:recording.data_base64, mimeType:recording.mime_type, fileName:recording.filename};
+}
 const escape = value => String(value ?? 'Nespecificat').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-// The email IS the minutes (PV): summary first, then decisions and the task table, so
-// nobody has to open the attachment to know what was decided and who does what.
+// Short email: the final decisions and what is attached. Tasks with owners and deadlines,
+// open questions and participants are in the minutes (DOCX); the recording lets anyone
+// hear what was actually said.
 const TYPES = {medical: ['Consiliu medical', '#0f766e'], executive: ['Ședință executivă', '#1d4ed8'],
   administrative: ['Ședință administrativă', '#7c3aed']};
 const [typeLabel, color] = TYPES[meeting.type];
@@ -60,22 +69,19 @@ const time = iso => iso.slice(11, 16);
 const when = day(meeting.started_at) === day(meeting.ended_at)
   ? `${day(meeting.started_at)}, ${time(meeting.started_at)}–${time(meeting.ended_at)}`
   : `${day(meeting.started_at)} ${time(meeting.started_at)} – ${day(meeting.ended_at)} ${time(meeting.ended_at)}`;
-const isVoiceLabel = v => /^S\d+$/.test(String(v ?? '').trim());   // "S2" from diarization is not a person
-const summaryNote = state.important_notes.find(n => /^Rezumat:/i.test(n));
-const summary = state.summary ?? (summaryNote ? summaryNote.replace(/^Rezumat:\s*/i, '') : '');
-const notes = state.important_notes.filter(n => n !== summaryNote);
-const people = state.participants.filter(p => !isVoiceLabel(p));
-const deadline = d => d == null ? '—' : /^\d{4}-\d{2}-\d{2}$/.test(d) ? day(d) : escape(d);
-const owner = o => o == null || isVoiceLabel(o) ? '<i style="color:#b45309">Nespecificat</i>' : escape(o);
 const section = (title, inner, show) => show
   ? `<h2 style="font-size:15px;margin:22px 0 8px;color:#111827">${title}</h2>${inner}` : '';
-const items = (values, tag) => `<${tag} style="margin:0;padding-left:20px;line-height:1.55">` +
-  values.map(v => `<li style="margin-bottom:4px">${escape(v)}</li>`).join('') + `</${tag}>`;
-const td = 'style="border-bottom:1px solid #e5e7eb;padding:7px 8px;vertical-align:top;text-align:left"';
-const tasks = '<table width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;font-size:14px">' +
-  `<tr style="background:#f3f4f6"><th ${td}>Sarcină</th><th ${td}>Responsabil</th><th ${td}>Termen</th></tr>` +
-  state.action_items.map(a => `<tr><td ${td}>${escape(a.description)}</td><td ${td}>${owner(a.owner)}</td>` +
-    `<td ${td}>${deadline(a.deadline)}</td></tr>`).join('') + '</table>';
+const list = (html, tag) => `<${tag} style="margin:0;padding-left:20px;line-height:1.55">` +
+  html.map(v => `<li style="margin-bottom:4px">${v}</li>`).join('') + `</${tag}>`;
+const decisions = state.decisions.length ? list(state.decisions.map(escape), 'ol')
+  : '<p style="margin:0;color:#6b7280">Nicio decizie finală înregistrată.</p>';
+const n = state.action_items.length;   // Romanian: "5 sarcini", "20 de sarcini", "101 sarcini"
+const tasks = n === 0 ? '' : n === 1 ? ', cu o sarcină (responsabil și termen)'
+  : `, cu ${n}${n % 100 >= 20 || n % 100 === 0 ? ' de' : ''} sarcini (responsabili și termene)`;
+const length = s => s < 60 ? `${Math.round(s)} s` : s < 3600 ? `${Math.round(s / 60)} min`
+  : `${Math.floor(s / 3600)} h ${Math.floor(s % 3600 / 60)} min`;
+const attached = documents.map(d => `<b>${escape(d.filename)}</b>: procesul-verbal complet${tasks}`)
+  .concat(recording ? [`<b>${escape(recording.filename)}</b>: înregistrarea ședinței (${length(recording.duration_s)})`] : []);
 const subject = `[MoM] ${meeting.title}`;
 if (/[\r\n]/.test(subject)) return invalid('Title must not contain newlines');
 const html = '<!doctype html><html lang="ro"><head><meta charset="utf-8"></head>' +
@@ -86,17 +92,12 @@ const html = '<!doctype html><html lang="ro"><head><meta charset="utf-8"></head>
   `<div style="font-size:12px;letter-spacing:.06em;text-transform:uppercase;opacity:.9">${typeLabel} · ${when}</div>` +
   `<div style="font-size:22px;font-weight:600;margin-top:4px">${escape(meeting.title)}</div></td></tr>` +
   '<tr><td style="padding:4px 28px 24px">' +
-  section('Rezumat', `<p style="margin:0;line-height:1.55">${escape(summary)}</p>`, summary) +
-  section('Decizii', items(state.decisions, 'ol'), state.decisions.length) +
-  section('Sarcini', tasks, state.action_items.length) +
-  section('Întrebări deschise', items(state.open_questions, 'ul'), state.open_questions.length) +
-  section('Participanți', `<p style="margin:0">${people.map(p => escape(p)).join(', ')}</p>`, people.length) +
-  section('Subiecte discutate', items(state.topics, 'ul'), state.topics.length) +
-  section('Note importante', items(notes, 'ul'), notes.length) +
+  section('Decizii finale', decisions, true) +
+  section('Atașamente', list(attached, 'ul'), true) +
+  section('Note importante', list(state.important_notes.map(escape), 'ul'), state.important_notes.length) +
   '</td></tr>' +
   '<tr><td style="padding:14px 28px;background:#f9fafb;font-size:12px;color:#6b7280;line-height:1.5">' +
   `Aprobat de <b>${escape(approval.approved_by)}</b> · ${day(approval.approved_at)} ${time(approval.approved_at)}<br>` +
-  `Procesul-verbal complet este atașat: ${documents.map(d => escape(d.filename)).join(', ')}<br>` +
   'Generat on-premise. Înregistrarea și transcrierea nu au părăsit rețeaua internă a spitalului.' +
   '</td></tr></table></td></tr></table></body></html>';
 return {json:{validation:'valid', delivery_id, meeting_id:meeting.id, meeting_type:meeting.type, subject, html, attachment_keys:Object.keys(binary).join(',')}, binary};

@@ -55,7 +55,17 @@ Text form fed to the LLM: `[00:00:10 ro S2] Natalia va contacta furnizorul pÃ¢nÄ
 Missing owner / deadline = `""`. Later changes in the meeting override earlier ones.
 
 ## n8n webhook (`POST http://n8n:5678/webhook/mom`)
+Contract v2, `schemas/meeting-delivery-v2.schema.json` (field rules in `n8n/README.md`):
 ```json
-{"job_id": "...", "meeting_type": "medical|executive|administrative",
- "meeting_date": "2026-09-26", "subject": "...", "html": "<email body>", "mom": {}}
+{"schema_version": "2", "delivery_id": "<job id>-<attempt>",
+ "state": {"meeting": {"id": "...", "title": "...", "type": "medical|executive|administrative",
+                       "started_at": "...", "ended_at": "..."},
+           "summary": "...", "decisions": ["..."], "action_items": [{"description": "...",
+           "owner": "Natalia Rusu", "deadline": "2026-10-01", "status": "open"}], "...": []},
+ "approval": {"status": "approved", "approved_by": "...", "approved_at": "..."},
+ "documents": [{"filename": "<job id>-minutes.docx", "mime_type": "...", "data_base64": "..."}],
+ "recording": {"filename": "<job id>-recording.ogg", "mime_type": "audio/ogg",
+               "duration_s": 2525.0, "data_base64": "..."}}
 ```
+`recording` is there only when the reviewer leaves it ticked. The email shows the final
+decisions and lists the attachments; the full minutes are in the DOCX.

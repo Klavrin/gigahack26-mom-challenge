@@ -151,6 +151,17 @@ def duration_s(path: str) -> float:
         return 0.0
 
 
+def compress(path: str, dst: str, kbps: int) -> "subprocess.Popen":
+    """Start an Ogg/Opus copy of the recording (mono, speech settings) in the background;
+    about 10 MB per hour at 24 kbps. The caller waits on the returned process."""
+    import subprocess
+
+    return subprocess.Popen(["ffmpeg", "-nostdin", "-loglevel", "error", "-y", "-i", path, "-vn",
+                             "-ac", "1", "-ar", str(SR), "-c:a", "libopus", "-b:a", f"{kbps}k",
+                             "-application", "voip", dst],
+                            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+
+
 def transcribe(
     audio: Union[str, np.ndarray],
     mode: Optional[str] = None,

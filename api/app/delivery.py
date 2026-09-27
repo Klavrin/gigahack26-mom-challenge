@@ -1,5 +1,6 @@
 """Approved minutes -> n8n delivery contract v2 (schemas/meeting-delivery-v2.schema.json):
-approved state snapshot + a DOCX of the minutes. The transcript never leaves the backend."""
+approved state snapshot + a DOCX of the minutes, and the recording when the reviewer
+leaves it ticked. The transcript leaves the backend only if the reviewer attaches it."""
 import base64
 import datetime as dt
 import io
@@ -126,7 +127,7 @@ def minutes_docx(mom: dict, meeting_type: str, date: dt.date,
 
 
 def payload(job: dict, mom: dict, approved_by: str, attempt: int,
-            transcript: list[dict] | None = None) -> dict:
+            transcript: list[dict] | None = None, recording: bytes | None = None) -> dict:
     date = dt.date.fromisoformat(job["meeting_date"])
     now = dt.datetime.now().astimezone()
     ended_at = dt.datetime.fromtimestamp(job["created"]).astimezone()   # upload = meeting over
@@ -135,7 +136,7 @@ def payload(job: dict, mom: dict, approved_by: str, attempt: int,
     if transcript:
         state["important_notes"].append(
             "Transcrierea completă este anexată la procesul-verbal (DOCX), la cererea celui care a aprobat.")
-    return {
+    body = {
         "schema_version": "2",
         "delivery_id": f"{job['id']}-{attempt}",
         "state": state,
@@ -150,3 +151,11 @@ def payload(job: dict, mom: dict, approved_by: str, attempt: int,
             "data_base64": base64.b64encode(docx).decode("ascii"),
         }],
     }
+    if recording:
+        body["recording"] = {
+            "filename": f"{job['id']}-recording.ogg",
+            "mime_type": "audio/ogg",
+            "duration_s": job["recording"]["duration_s"],
+            "data_base64": base64.b64encode(recording).decode("ascii"),
+        }
+    return body

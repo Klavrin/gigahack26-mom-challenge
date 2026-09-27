@@ -290,9 +290,10 @@ code { font: 12.5px/1.5 ui-monospace, "Cascadia Mono", Consolas, monospace; }
   display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-radius: 10px;
   background: var(--warn-soft); color: var(--warn); font-size: 14px; font-weight: 550; text-align: left;
 }
-.attach-transcript { display: flex; gap: 10px; align-items: flex-start; font-size: 14px; cursor: pointer; }
-.attach-transcript input { margin-top: 3px; accent-color: var(--accent); }
-.attach-transcript small { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; }
+.attach-option { display: flex; gap: 10px; align-items: flex-start; font-size: 14px; cursor: pointer; }
+.attach-option input { margin-top: 3px; accent-color: var(--accent); }
+.attach-option.unavailable { opacity: .55; cursor: default; }
+.attach-option small { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; }
 .all-set { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--ok); }
 
 /* ---------- sheets (transcript, settings) ---------- */

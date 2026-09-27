@@ -59,6 +59,13 @@ generation. `schemas/meeting-delivery-v2.schema.json` is the transport contract;
 - `documents`: one or two `{filename, mime_type, data_base64}` objects, DOCX/PDF
   only, maximum **5 MiB total decoded**. Use plain canonical base64, no data URL.
   No filesystem paths, download URLs, credentials or recipients are accepted.
+- `recording` (optional): `{filename, mime_type: "audio/ogg", duration_s, data_base64}`,
+  the meeting audio as Ogg/Opus, maximum **15 MiB decoded**. The backend sends it when
+  the reviewer leaves "attach the recording" ticked; n8n checks the `OggS` signature and
+  attaches it next to the minutes. `N8N_PAYLOAD_SIZE_MAX` is 32 MiB to fit both.
+
+The email body is short: the final decisions, the list of attachments and the approval.
+Tasks with owners and deadlines, open questions and participants are in the DOCX.
 
 The full backend state may retain `transcript`, richer participant identities,
 revision history, and speaker embeddings. Project only the approved display fields

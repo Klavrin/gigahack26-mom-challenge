@@ -16,6 +16,7 @@ export default function Review({ job, onSent, lang }) {
   const [transcriptAt, setTranscriptAt] = useState(null);   // null = closed, -1 = open at top
   const [approver, setApprover] = useState(loadApprover);    // who signs off; remembered per browser
   const [attachTranscript, setAttachTranscript] = useState(false);   // opt-in, never remembered
+  const [attachAudio, setAttachAudio] = useState(true);   // on by default; untick for sensitive meetings
 
   useEffect(() => {
     Promise.all([api.mom(job.id), api.segments(job.id)]).then(([m, s]) => {
@@ -53,7 +54,10 @@ export default function Review({ job, onSent, lang }) {
     setError(null);
     saveApprover(name);
     try {
-      onSent(await api.send(job.id, { meeting_type: type, action_items: items, approved_by: name, attach_transcript: attachTranscript }));
+      onSent(await api.send(job.id, {
+        meeting_type: type, action_items: items, approved_by: name,
+        attach_transcript: attachTranscript, attach_audio: attachAudio && Boolean(job.recording),
+      }));
     } catch (e) {
       setError(`${t.sendFailed} ${e.message}`);
       setSending(false);
@@ -170,7 +174,26 @@ export default function Review({ job, onSent, lang }) {
                    onKeyDown={(e) => e.key === "Enter" && send()} />
           </label>
 
-          <label className="attach-transcript">
+          {job.recording ? (
+            <label className="attach-option">
+              <input type="checkbox" checked={attachAudio} disabled={sending}
+                     onChange={(e) => setAttachAudio(e.target.checked)} />
+              <span>
+                {t.attachAudio(clock(job.recording.duration_s), (job.recording.bytes / 1e6).toFixed(1))}
+                <small>{t.attachAudioHint}</small>
+              </span>
+            </label>
+          ) : (
+            <label className="attach-option unavailable">
+              <input type="checkbox" checked={false} disabled />
+              <span>
+                {t.audioUnavailable}
+                <small>{t.audioUnavailableHint}</small>
+              </span>
+            </label>
+          )}
+
+          <label className="attach-option">
             <input type="checkbox" checked={attachTranscript} disabled={sending}
                    onChange={(e) => setAttachTranscript(e.target.checked)} />
             <span>
